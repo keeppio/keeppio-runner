@@ -115,6 +115,16 @@ func (s *Server) Mux() *http.ServeMux {
 	mux.HandleFunc("/api/tasks", s.requireAPIAuth(s.handleAPITasksList))
 	mux.HandleFunc("/api/tasks/", s.requireAPIAuth(s.handleAPITask))
 	mux.HandleFunc("/api/runs", s.requireAPIAuth(s.handleAPIRunCreate))
+
+	// Tenant ops API — bearer-token auth, JSON in/out. Used by the
+	// inventory detail page (via the cookie-auth aliases below) and by
+	// any external automation.
+	mux.HandleFunc("/api/tenants/", s.requireAPIAuth(s.handleAPITenantsRoute))
+
+	// Cookie-auth equivalents so the inventory page's vanilla-fetch
+	// JS can hit them without exposing a bearer token to the browser.
+	// Exact same handlers under a different prefix.
+	mux.HandleFunc("/ui/tenants/", s.requireAuth(s.handleUITenantsRoute))
 	return mux
 }
 
@@ -629,13 +639,27 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 		return colocatedHosts[i].Host.Name < colocatedHosts[j].Host.Name
 	})
 
+	// Per-domain on/off state. Only meaningful for tenants (clients
+	// group); other groups get an empty set so the template can stay
+	// uniform. The set keys are FQDNs; presence ⇒ disabled.
+	disabledSet := map[string]bool{}
+	if group == "clients" {
+		if list, err := ReadDisabledDomains(s.cfg.RepoPath, s.cfg.Env, name); err == nil {
+			for _, d := range list {
+				disabledSet[d] = true
+			}
+		}
+	}
+
 	s.render(w, "inventory_show.html", map[string]any{
-		"Env":       s.cfg.Env,
-		"User":      currentUser(r),
-		"Group":     group,
-		"Host":      host,
-		"Actions":   links,
-		"Colocated": colocatedHosts,
+		"Env":             s.cfg.Env,
+		"User":            currentUser(r),
+		"Group":           group,
+		"Host":            host,
+		"Actions":         links,
+		"Colocated":       colocatedHosts,
+		"IsTenant":        group == "clients",
+		"DisabledDomains": disabledSet,
 	})
 }
 

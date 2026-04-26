@@ -20,15 +20,181 @@
 <div class="bg-white border rounded-lg overflow-hidden mb-6">
   <table class="w-full text-sm">
     <tbody>
+      {{ $isTenant := .IsTenant }}
+      {{ $disabled := .DisabledDomains }}
+      {{ $slug := .Host.Name }}
       {{ range .Host.AllFqdns }}
+      {{ $isOff := index $disabled .Fqdn }}
       <tr class="border-t first:border-t-0">
         <td class="px-3 py-2 text-zinc-500 w-32">{{ .Label }}</td>
-        <td class="px-3 py-2 font-mono"><a href="https://{{ .Fqdn }}" target="_blank" rel="noopener" class="text-blue-600 hover:underline">{{ .Fqdn }}</a></td>
+        <td class="px-3 py-2 font-mono">
+          <a href="https://{{ .Fqdn }}" target="_blank" rel="noopener" class="text-blue-600 hover:underline">{{ .Fqdn }}</a>
+          {{ if $isOff }}<span class="ml-2 text-xs uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">off</span>{{ end }}
+        </td>
+        {{ if $isTenant }}
+        <td class="px-3 py-2 text-right w-40">
+          <label class="inline-flex items-center cursor-pointer select-none gap-2"
+                 title="{{ if $isOff }}Service is OFF — click to bring it back online.{{ else }}Service is ON — click to serve a static off-page instead.{{ end }}">
+            <span class="text-xs text-zinc-500">{{ if $isOff }}OFF{{ else }}ON{{ end }}</span>
+            <input
+              type="checkbox"
+              class="domain-toggle"
+              data-slug="{{ $slug }}"
+              data-key="{{ .Label }}"
+              data-fqdn="{{ .Fqdn }}"
+              {{ if not $isOff }}checked{{ end }}
+              aria-label="Toggle {{ .Label }} on/off">
+          </label>
+        </td>
+        {{ end }}
       </tr>
       {{ end }}
     </tbody>
   </table>
 </div>
+{{ end }}
+
+{{ if .IsTenant }}
+<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2 flex items-center gap-2">
+  <span>Containers</span>
+  <span id="containers-status" class="text-xs text-zinc-400 normal-case tracking-normal italic">loading…</span>
+  <button id="containers-refresh" type="button"
+          class="ml-auto text-xs text-zinc-500 hover:text-zinc-900 normal-case tracking-normal underline-offset-2 hover:underline">
+    refresh
+  </button>
+</h2>
+<div class="bg-white border rounded-lg overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-zinc-50 text-zinc-500 uppercase tracking-wide text-xs">
+      <tr>
+        <th class="px-3 py-2 text-left font-medium">Container</th>
+        <th class="px-3 py-2 text-left font-medium">Image</th>
+        <th class="px-3 py-2 text-left font-medium">State</th>
+        <th class="px-3 py-2 text-left font-medium">Status</th>
+        <th class="px-3 py-2 text-right font-medium w-24">Toggle</th>
+      </tr>
+    </thead>
+    <tbody id="containers-tbody">
+      <tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 italic">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function() {
+  const slug = {{ .Host.Name | printf "%q" }};
+  const tbody = document.getElementById('containers-tbody');
+  const status = document.getElementById('containers-status');
+  const refresh = document.getElementById('containers-refresh');
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  async function loadContainers() {
+    status.textContent = 'loading…';
+    try {
+      const r = await fetch(`/ui/tenants/${encodeURIComponent(slug)}/containers`, {
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+      }
+      const data = await r.json();
+      const list = data.containers || [];
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 italic">No containers found for keeppio-${escapeHtml(slug)}-*</td></tr>`;
+      } else {
+        tbody.innerHTML = list.map(c => `
+          <tr class="border-t" data-name="${escapeHtml(c.name)}">
+            <td class="px-3 py-2 font-mono">${escapeHtml(c.name)}</td>
+            <td class="px-3 py-2 font-mono text-zinc-600 break-all">${escapeHtml(c.image)}</td>
+            <td class="px-3 py-2">
+              <span class="text-xs px-2 py-0.5 rounded ${c.running ? 'bg-green-100 text-green-800' : 'bg-zinc-100 text-zinc-700'}">${escapeHtml(c.state)}</span>
+            </td>
+            <td class="px-3 py-2 text-zinc-600">${escapeHtml(c.status)}</td>
+            <td class="px-3 py-2 text-right">
+              <label class="inline-flex items-center cursor-pointer select-none gap-2" title="${c.running ? 'Stop container' : 'Start container'}">
+                <span class="text-xs text-zinc-500">${c.running ? 'ON' : 'OFF'}</span>
+                <input type="checkbox" class="container-toggle" data-name="${escapeHtml(c.name)}" ${c.running ? 'checked' : ''} aria-label="Toggle ${escapeHtml(c.name)}">
+              </label>
+            </td>
+          </tr>`).join('');
+      }
+      status.textContent = `${list.length} container(s)`;
+    } catch (e) {
+      status.textContent = '';
+      tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-4 text-center text-red-600">Error: ${escapeHtml(e.message || e)}</td></tr>`;
+    }
+  }
+
+  async function toggleContainer(name, start, checkbox) {
+    checkbox.disabled = true;
+    try {
+      const r = await fetch(`/ui/tenants/${encodeURIComponent(slug)}/containers/${encodeURIComponent(name)}/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start: !!start }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+      }
+      // Re-fetch the list so state + uptime are accurate.
+      await loadContainers();
+    } catch (e) {
+      alert(`Failed to ${start ? 'start' : 'stop'} ${name}: ${e.message || e}`);
+      checkbox.checked = !start; // revert
+      checkbox.disabled = false;
+    }
+  }
+
+  tbody.addEventListener('change', (e) => {
+    const cb = e.target.closest('input.container-toggle');
+    if (!cb) return;
+    toggleContainer(cb.dataset.name, cb.checked, cb);
+  });
+  refresh.addEventListener('click', loadContainers);
+  loadContainers();
+
+  // ── Domain toggles ───────────────────────────────────────────────
+  // Toggling a domain enqueues the tenant-domain-toggle playbook.
+  // We jump to the task page so the operator can watch nginx reload
+  // live; on success they can come back and re-toggle.
+  document.querySelectorAll('input.domain-toggle').forEach(cb => {
+    cb.addEventListener('change', async (e) => {
+      const want = cb.checked ? 'on' : 'off';
+      const key = cb.dataset.key;
+      const fqdn = cb.dataset.fqdn;
+      cb.disabled = true;
+      try {
+        const r = await fetch(`/ui/tenants/${encodeURIComponent(slug)}/domains/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain_key: key, state: want }),
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+        }
+        const data = await r.json();
+        // Hop to the task page — the playbook commits + pushes + reloads
+        // nginx; takes ~10–20s. The page bar will refresh and the new
+        // toggle state shows up in the YAML on the next inventory page
+        // load.
+        if (data.url) window.location.href = data.url;
+      } catch (err) {
+        alert(`Failed to toggle ${fqdn}: ${err.message || err}`);
+        cb.checked = !cb.checked;
+        cb.disabled = false;
+      }
+    });
+  });
+})();
+</script>
 {{ end }}
 
 {{ if .Colocated }}
