@@ -1,13 +1,18 @@
 {{ define "inventory.html" }}{{ template "header" . }}
-<h1 class="text-xl font-semibold mb-1">Inventory</h1>
-<p class="text-sm text-zinc-500 mb-6">Click any host to see actions you can run against it. Edits live in <code class="bg-zinc-100 px-1 rounded">keeppio-infrastructure</code>; the runner re-reads every 30s + before each task.</p>
-
 {{ range .Groups }}
 {{ $group := .Group }}
 <section class="mb-8">
-  <header class="flex items-baseline justify-between mb-1">
-    <h2 class="text-sm uppercase tracking-wide text-zinc-500">{{ .Icon }} {{ .Title }} <span class="text-zinc-400">·</span> <span class="font-mono text-zinc-400">{{ $group }}</span></h2>
-    <span class="text-xs text-zinc-400">{{ len .Hosts }} {{ if eq (len .Hosts) 1 }}host{{ else }}hosts{{ end }}</span>
+  <header class="flex items-baseline justify-between mb-2">
+    <div class="flex items-baseline gap-2">
+      <h2 class="text-lg font-semibold">{{ .Icon }} {{ .Title }}</h2>
+      <span class="text-xs text-zinc-400">{{ len .Hosts }} {{ if eq (len .Hosts) 1 }}host{{ else }}hosts{{ end }}</span>
+    </div>
+    {{ if .Creator }}
+    <a href="/run/{{ .Creator.ID }}" class="text-sm border rounded-md px-3 py-1 bg-white hover:bg-zinc-50 flex items-center gap-1" title="{{ .Creator.Description }}">
+      <span class="text-base leading-none">+</span>
+      <span>{{ .Creator.Label }}</span>
+    </a>
+    {{ end }}
   </header>
   <p class="text-xs text-zinc-500 mb-3">{{ .Hint }}</p>
   {{ if .Hosts }}
@@ -24,7 +29,10 @@
     {{ end }}
   </div>
   {{ else }}
-  <p class="text-sm text-zinc-400 italic">none registered</p>
+  <div class="text-sm text-zinc-400 italic bg-white border border-dashed rounded-lg p-6 text-center">
+    No {{ .Title | upper }}{{ "" }} yet.
+    {{ if .Creator }}<a href="/run/{{ .Creator.ID }}" class="text-blue-600 hover:underline">{{ .Creator.Label }} →</a>{{ end }}
+  </div>
   {{ end }}
 </section>
 {{ end }}

@@ -27,15 +27,16 @@ const sessionCookie = "kr_session"
 // Server wires the dependency graph and exposes ServeMux. Methods on
 // it are HTTP handlers; `mux()` returns the routed mux.
 type Server struct {
-	cfg    *Config
-	db     *sql.DB
-	cat    *Catalog
-	runner *Runner
-	tmpl   *template.Template
-	upgr   websocket.Upgrader
+	cfg      *Config
+	db       *sql.DB
+	cat      *Catalog
+	runner   *Runner
+	tmpl     *template.Template
+	staticFS embed.FS
+	upgr     websocket.Upgrader
 }
 
-func NewServer(cfg *Config, db *sql.DB, cat *Catalog, runner *Runner, tplFS embed.FS) (*Server, error) {
+func NewServer(cfg *Config, db *sql.DB, cat *Catalog, runner *Runner, tplFS, staticFS embed.FS) (*Server, error) {
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"timeAgo": timeAgo,
 		"upper":   strings.ToUpper,
@@ -70,11 +71,12 @@ func NewServer(cfg *Config, db *sql.DB, cat *Catalog, runner *Runner, tplFS embe
 		return nil, err
 	}
 	return &Server{
-		cfg:    cfg,
-		db:     db,
-		cat:    cat,
-		runner: runner,
-		tmpl:   tmpl,
+		cfg:      cfg,
+		db:       db,
+		cat:      cat,
+		runner:   runner,
+		tmpl:     tmpl,
+		staticFS: staticFS,
 		upgr: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
@@ -86,10 +88,12 @@ func (s *Server) Mux() *http.ServeMux {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "ok\n")
 	})
+	// Embedded static assets (background image, etc.) served from /static/<file>.
+	mux.Handle("/static/", http.StripPrefix("/", http.FileServer(http.FS(s.staticFS))))
 	mux.HandleFunc("/login", s.handleLoginGet)
 	mux.HandleFunc("/login.submit", s.handleLoginPost)
 	mux.HandleFunc("/logout", s.requireAuth(s.handleLogout))
-	mux.HandleFunc("/", s.requireAuth(s.handleDashboard))
+	mux.HandleFunc("/", s.requireAuth(s.handleHome))
 	mux.HandleFunc("/run/", s.requireAuth(s.handleRun))                  // GET: form, POST: enqueue
 	mux.HandleFunc("/tasks", s.requireAuth(s.handleTasksList))
 	mux.HandleFunc("/tasks/", s.requireAuth(s.handleTaskShow))           // /tasks/<id>
@@ -197,11 +201,41 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 // Dashboard + action form
 // ──────────────────────────────────────────────────────────────────────
 
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "dashboard.html", map[string]any{
+// handleHome — landing page is the inventory. Each group section has
+// a "+" link to its create action (if any), plus a card per host.
+// Resource-centric, not action-centric: closer to a fleet manager
+// than a wrapper around playbook buttons.
+func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
+	tree, err := ReadInventoryTree(s.cfg.RepoPath, s.cfg.Env)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	creators := map[string]Action{}
+	for _, a := range s.cat.All() {
+		if a.CreatesIn == "" {
+			continue
+		}
+		if existing, ok := creators[a.CreatesIn]; ok && existing.ID < a.ID {
+			continue
+		}
+		creators[a.CreatesIn] = a
+	}
+	views := make([]inventoryGroupView, 0, len(inventoryGroupMeta))
+	for _, m := range inventoryGroupMeta {
+		v := inventoryGroupView{
+			Group: m.Group, Title: m.Title, Icon: m.Icon, Hint: m.Hint,
+			Hosts: tree[m.Group],
+		}
+		if c, ok := creators[m.Group]; ok {
+			v.Creator = &c
+		}
+		views = append(views, v)
+	}
+	s.render(w, "inventory.html", map[string]any{
 		"Env":    s.cfg.Env,
 		"User":   currentUser(r),
-		"Groups": s.cat.Grouped(),
+		"Groups": views,
 	})
 }
 
@@ -484,31 +518,18 @@ var inventoryGroupMeta = []struct {
 }
 
 type inventoryGroupView struct {
-	Group string
-	Title string
-	Icon  string
-	Hint  string
-	Hosts []HostEntry
+	Group   string
+	Title   string
+	Icon    string
+	Hint    string
+	Hosts   []HostEntry
+	Creator *Action // optional "+" action for the section header
 }
 
+// /inventory → just an alias for / now that the home page IS the
+// inventory. Kept so old bookmarks don't 404.
 func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
-	tree, err := ReadInventoryTree(s.cfg.RepoPath, s.cfg.Env)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	views := make([]inventoryGroupView, 0, len(inventoryGroupMeta))
-	for _, m := range inventoryGroupMeta {
-		views = append(views, inventoryGroupView{
-			Group: m.Group, Title: m.Title, Icon: m.Icon, Hint: m.Hint,
-			Hosts: tree[m.Group],
-		})
-	}
-	s.render(w, "inventory.html", map[string]any{
-		"Env":    s.cfg.Env,
-		"User":   currentUser(r),
-		"Groups": views,
-	})
+	http.Redirect(w, r, "/", http.StatusMovedPermanently)
 }
 
 // /inventory/<group>/<name> — drill-down: show the host's connection
@@ -541,8 +562,8 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build action links. For each action, check if it declares
-	// applies_to entries with matching group; for each match render
-	// a /run/<id>?<field>=<name> link.
+	// applies_to entries with matching group; pre-fill the field if
+	// declared, otherwise plain /run/<id>.
 	type actionLink struct {
 		ID          string
 		Label       string
@@ -556,7 +577,10 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 			if ap.Group != group {
 				continue
 			}
-			u := "/run/" + a.ID + "?" + url.Values{ap.Field: {name}}.Encode()
+			u := "/run/" + a.ID
+			if ap.Field != "" {
+				u += "?" + url.Values{ap.Field: {name}}.Encode()
+			}
 			links = append(links, actionLink{
 				ID: a.ID, Label: a.Label, Description: a.Description,
 				Severity: a.Severity, URL: u,
@@ -564,8 +588,6 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
-	// Stable order: dangerous last so they don't draw the eye first.
 	sort.SliceStable(links, func(i, j int) bool {
 		if links[i].Severity == links[j].Severity {
 			return links[i].Label < links[j].Label
@@ -573,12 +595,36 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 		return links[i].Severity != "danger"
 	})
 
+	// "What else lives on this VPS" — every other inventory host
+	// sharing the same ansible_host IP. Useful to spot accidental
+	// co-tenancy when picking a target for tenant-move/recover, or
+	// to see who's neighbouring a tenant on shared hardware.
+	type colocated struct {
+		Group string
+		Host  HostEntry
+	}
+	var colocatedHosts []colocated
+	for groupName, g := range tree {
+		for _, h := range g {
+			if h.Host == host.Host && !(groupName == group && h.Name == name) {
+				colocatedHosts = append(colocatedHosts, colocated{Group: groupName, Host: h})
+			}
+		}
+	}
+	sort.Slice(colocatedHosts, func(i, j int) bool {
+		if colocatedHosts[i].Group != colocatedHosts[j].Group {
+			return colocatedHosts[i].Group < colocatedHosts[j].Group
+		}
+		return colocatedHosts[i].Host.Name < colocatedHosts[j].Host.Name
+	})
+
 	s.render(w, "inventory_show.html", map[string]any{
-		"Env":     s.cfg.Env,
-		"User":    currentUser(r),
-		"Group":   group,
-		"Host":    host,
-		"Actions": links,
+		"Env":       s.cfg.Env,
+		"User":      currentUser(r),
+		"Group":     group,
+		"Host":      host,
+		"Actions":   links,
+		"Colocated": colocatedHosts,
 	})
 }
 

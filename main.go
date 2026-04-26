@@ -19,6 +19,9 @@ import (
 //go:embed templates/*
 var tplFS embed.FS
 
+//go:embed static/*
+var staticFS embed.FS
+
 func main() {
 	cfg, err := internal.LoadConfig()
 	if err != nil {
@@ -110,7 +113,7 @@ func main() {
 	runner := internal.NewRunner(cfg, db, cat)
 	runner.Start(ctx)
 
-	server, err := internal.NewServer(cfg, db, cat, runner, tplFS)
+	server, err := internal.NewServer(cfg, db, cat, runner, tplFS, staticFS)
 	if err != nil {
 		log.Fatalf("server: %v", err)
 	}

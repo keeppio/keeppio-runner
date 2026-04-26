@@ -1,6 +1,6 @@
 {{ define "inventory_show.html" }}{{ template "header" . }}
 <div class="mb-4">
-  <a href="/inventory" class="text-sm text-zinc-500 hover:underline">← all inventory</a>
+  <a href="/" class="text-sm text-zinc-500 hover:underline">← all inventory</a>
 </div>
 
 <div class="flex items-baseline gap-3 mb-2">
@@ -8,7 +8,7 @@
   <span class="text-xs uppercase tracking-wide bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded">{{ .Group }}</span>
 </div>
 
-<div class="grid grid-cols-2 gap-4 bg-white border rounded-lg p-4 mb-6 text-sm">
+<div class="grid grid-cols-3 gap-4 bg-white border rounded-lg p-4 mb-6 text-sm">
   <div><span class="text-zinc-500">Host:</span> <span class="font-mono">{{ .Host.Host }}</span></div>
   <div><span class="text-zinc-500">User:</span> <span class="font-mono">{{ .Host.User }}</span></div>
   <div><span class="text-zinc-500">SSH port:</span> <span class="font-mono">{{ .Host.Port }}</span></div>
@@ -21,7 +21,7 @@
     <tbody>
       {{ range .Host.AllFqdns }}
       <tr class="border-t first:border-t-0">
-        <td class="px-3 py-2 text-zinc-500 w-24">{{ .Label }}</td>
+        <td class="px-3 py-2 text-zinc-500 w-32">{{ .Label }}</td>
         <td class="px-3 py-2 font-mono"><a href="https://{{ .Fqdn }}" target="_blank" rel="noopener" class="text-blue-600 hover:underline">{{ .Fqdn }}</a></td>
       </tr>
       {{ end }}
@@ -30,7 +30,22 @@
 </div>
 {{ end }}
 
-<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2">Available actions</h2>
+{{ if .Colocated }}
+<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2">Co-located on this VPS ({{ .Host.Host }})</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+  {{ range .Colocated }}
+  <a href="/inventory/{{ .Group }}/{{ .Host.Name }}" class="block bg-white border rounded-lg p-3 hover:bg-zinc-50">
+    <div class="flex items-start justify-between gap-2">
+      <div class="font-medium truncate">{{ .Host.Name }}</div>
+      <span class="text-[10px] uppercase tracking-wide text-zinc-400">{{ .Group }}</span>
+    </div>
+    {{ if .Host.PrimaryFqdn }}<div class="text-xs text-blue-600 truncate mt-0.5">{{ .Host.PrimaryFqdn }}</div>{{ end }}
+  </a>
+  {{ end }}
+</div>
+{{ end }}
+
+<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2">Operations</h2>
 {{ if .Actions }}
 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
   {{ range .Actions }}
@@ -41,6 +56,6 @@
   {{ end }}
 </div>
 {{ else }}
-<p class="text-sm text-zinc-400 italic">No actions defined for hosts in this group. Add an <code>applies_to</code> entry to an action in <code>actions.yml</code>.</p>
+<p class="text-sm text-zinc-400 italic">No operations defined for this resource type.</p>
 {{ end }}
 {{ template "footer" . }}{{ end }}

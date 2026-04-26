@@ -6,6 +6,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign in · keeppio-runner ({{ .Env }})</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body::before {
+      content: ""; position: fixed; inset: 0;
+      background: url('/static/background.png') center/cover no-repeat;
+      opacity: 0.06; pointer-events: none; z-index: 0;
+    }
+    form { position: relative; z-index: 1; }
+  </style>
 </head>
 <body class="bg-zinc-50 min-h-screen flex items-center justify-center">
   <form action="/login.submit" method="post" class="bg-white border rounded-lg p-6 w-80 shadow-sm">

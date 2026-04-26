@@ -34,13 +34,20 @@ type Action struct {
 	// on, plus the form field that should be pre-populated when the
 	// user reaches the action from a resource detail page. An action
 	// can apply to multiple groups (e.g. tenant-move acts on both a
-	// tenant and a target server).
+	// tenant and a target server). Field can be empty for actions
+	// that don't need a per-host param (e.g. runner-self-update).
 	AppliesTo []Applies `yaml:"applies_to"`
+	// CreatesIn means "this action creates a new resource in the
+	// named inventory group" — the inventory page renders a "+" link
+	// to this action's form next to the matching group header. At
+	// most one creator per group; ties resolve to the alphabetically
+	// first action ID.
+	CreatesIn string `yaml:"creates_in"`
 }
 
 type Applies struct {
-	Group string `yaml:"group"` // inventory group name (clients|servers)
-	Field string `yaml:"field"` // form field to pre-fill with the host name
+	Group string `yaml:"group"` // inventory group name (clients|servers|ops)
+	Field string `yaml:"field"` // form field to pre-fill; empty if N/A
 }
 
 type Field struct {
