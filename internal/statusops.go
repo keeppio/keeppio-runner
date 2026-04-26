@@ -190,12 +190,11 @@ func kumaCall(ctx context.Context, ops tenantConn, slug, path string) ([]byte, e
 	if !isSafeSlug(slug) {
 		return nil, fmt.Errorf("unsafe slug: %q", slug)
 	}
-	// docker exec ... wget. Why busybox wget instead of curl: Kuma's
-	// upstream image is alpine-based + ships busybox, which provides
-	// wget but not curl. -qO- prints to stdout; -T 5 caps the request
-	// at 5 s.
+	// docker exec ... curl. The Kuma upstream image (debian-slim base)
+	// ships curl, not wget. -fsSm5: fail on HTTP error (-f), silent
+	// (-s), still emit errors on stderr (-S), 5s max time (-m 5).
 	cmd := fmt.Sprintf(
-		"docker exec keeppio-kuma-%s wget -qO- -T 5 http://localhost:3001%s",
+		"docker exec keeppio-kuma-%s curl -fsSm5 http://localhost:3001%s",
 		slug, path,
 	)
 	out, err := sshExec(ctx, ops, cmd)
