@@ -103,7 +103,16 @@ func (s *Server) Mux() *http.ServeMux {
 	mux.HandleFunc("/settings", s.requireAuth(s.handleSettingsGet))
 	mux.HandleFunc("/settings.submit", s.requireAuth(s.handleSettingsPost))
 	mux.HandleFunc("/settings/pull-repo", s.requireAuth(s.handleSettingsPullRepo))
+	mux.HandleFunc("/settings/api-tokens", s.requireAuth(s.handleAPITokenCreate))   // POST: create
+	mux.HandleFunc("/settings/api-tokens/revoke", s.requireAuth(s.handleAPITokenRevoke)) // POST: revoke
 	mux.HandleFunc("/ws/tasks/", s.requireAuth(s.handleTaskWS))          // /ws/tasks/<id>
+
+	// Read-only JSON API for external observers. Auth: Authorization:
+	// Bearer kr_pat_…  (token issued from /settings). Strictly GET,
+	// strictly idempotent — no state-change endpoints. State-change
+	// would require expanding the threat model considerably.
+	mux.HandleFunc("/api/tasks", s.requireAPIAuth(s.handleAPITasksList))
+	mux.HandleFunc("/api/tasks/", s.requireAPIAuth(s.handleAPITask))
 	return mux
 }
 
@@ -629,17 +638,33 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	s.renderSettings(w, r, map[string]any{
+		"PullOK":       q.Get("pulled") == "1",
+		"PullErr":      q.Get("err"),
+		"TokenRevoked": q.Get("token_revoked") == "1",
+	})
+}
+
+// renderSettings is the shared body for all settings-page render paths
+// (GET /settings, POST /settings/api-tokens, password-update errors).
+// Loads the bits the page always needs (commit, tokens) and merges in
+// caller-provided extras like NewToken or TokenError.
+func (s *Server) renderSettings(w http.ResponseWriter, r *http.Request, extra map[string]any) {
 	commit := strings.TrimSpace(captureCmd(s.cfg.RepoPath, "git", "rev-parse", "HEAD"))
 	subject := strings.TrimSpace(captureCmd(s.cfg.RepoPath, "git", "log", "-1", "--pretty=%s"))
-	q := r.URL.Query()
-	s.render(w, "settings.html", map[string]any{
+	tokens, _ := ListAPITokens(r.Context(), s.db)
+	data := map[string]any{
 		"Env":           s.cfg.Env,
 		"User":          currentUser(r),
 		"Commit":        commit,
 		"CommitSubject": subject,
-		"PullOK":        q.Get("pulled") == "1",
-		"PullErr":       q.Get("err"),
-	})
+		"APITokens":     tokens,
+	}
+	for k, v := range extra {
+		data[k] = v
+	}
+	s.render(w, "settings.html", data)
 }
 
 // handleSettingsPullRepo runs the same git fetch + reset that the
@@ -692,13 +717,7 @@ func (s *Server) handleSettingsPost(w http.ResponseWriter, r *http.Request) {
 	newPw := r.FormValue("new_password")
 	confirm := r.FormValue("confirm_password")
 	if newPw == "" || newPw != confirm {
-		commit := strings.TrimSpace(captureCmd(s.cfg.RepoPath, "git", "rev-parse", "HEAD"))
-		s.render(w, "settings.html", map[string]any{
-			"Env":    s.cfg.Env,
-			"User":   currentUser(r),
-			"Commit": commit,
-			"Error":  "passwords don't match (or empty)",
-		})
+		s.renderSettings(w, r, map[string]any{"Error": "passwords don't match (or empty)"})
 		return
 	}
 	if err := SetAdminPassword(r.Context(), s.db, newPw); err != nil {
@@ -706,6 +725,214 @@ func (s *Server) handleSettingsPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, "/settings?ok=1", http.StatusSeeOther)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// API token management (issued + revoked from /settings)
+// ──────────────────────────────────────────────────────────────────────
+
+// handleAPITokenCreate POSTs a `name`, mints a token, and re-renders
+// the settings page with the freshly-minted token displayed once. We
+// never persist the plaintext token (only its SHA-256), so the user
+// must copy it now or re-issue. POST→render (not POST→redirect) so
+// the token doesn't end up in URL/referrer logs.
+func (s *Server) handleAPITokenCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	name := r.FormValue("name")
+	token, _, err := CreateAPIToken(r.Context(), s.db, name)
+	if err != nil {
+		s.renderSettings(w, r, map[string]any{"TokenError": err.Error()})
+		return
+	}
+	s.renderSettings(w, r, map[string]any{"NewToken": token, "NewTokenName": name})
+}
+
+func (s *Server) handleAPITokenRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	id, err := strconv.ParseInt(r.FormValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	if err := RevokeAPIToken(r.Context(), s.db, id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/settings?token_revoked=1", http.StatusSeeOther)
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Read-only JSON API
+// ──────────────────────────────────────────────────────────────────────
+
+// requireAPIAuth wraps a handler with bearer-token authentication. On
+// success the inner handler runs with hardened response headers
+// (no-store / nosniff). No CORS preflight handling — by design: the
+// API isn't meant to be called from browsers.
+func (s *Server) requireAPIAuth(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		const pfx = "Bearer "
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, pfx) {
+			apiErr(w, http.StatusUnauthorized, "missing bearer token")
+			return
+		}
+		token := strings.TrimPrefix(auth, pfx)
+		if _, _, err := VerifyAPIToken(r.Context(), s.db, token); err != nil {
+			apiErr(w, http.StatusUnauthorized, "invalid or revoked token")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		handler(w, r)
+	}
+}
+
+func apiErr(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+func apiJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+// apiTaskRow is the JSON shape returned by /api/tasks endpoints. Mirrors
+// the columns in `tasks` plus a derived has_log flag, with explicit
+// json tags so any future column rename in the DB doesn't break clients.
+type apiTaskRow struct {
+	ID          int64           `json:"id"`
+	ActionID    string          `json:"action_id"`
+	ActionLabel string          `json:"action_label"`
+	Status      string          `json:"status"`
+	Args        json.RawMessage `json:"args"`
+	Commit      string          `json:"commit,omitempty"`
+	Username    string          `json:"username"`
+	CreatedAt   time.Time       `json:"created_at"`
+	StartedAt   *time.Time      `json:"started_at,omitempty"`
+	EndedAt     *time.Time      `json:"ended_at,omitempty"`
+	ExitCode    *int            `json:"exit_code,omitempty"`
+	HasLog      bool            `json:"has_log"`
+}
+
+func scanAPITaskRow(scan func(...any) error) (apiTaskRow, string, error) {
+	var (
+		t       apiTaskRow
+		argsStr string
+		logPath string
+	)
+	err := scan(
+		&t.ID, &t.ActionID, &t.ActionLabel, &t.Status, &argsStr,
+		&t.Commit, &t.Username, &t.CreatedAt, &t.StartedAt, &t.EndedAt,
+		&t.ExitCode, &logPath,
+	)
+	if err != nil {
+		return t, "", err
+	}
+	t.Args = json.RawMessage(argsStr)
+	t.HasLog = logPath != ""
+	return t, logPath, nil
+}
+
+func (s *Server) handleAPITasksList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		apiErr(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	limit := 50
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	rows, err := s.db.QueryContext(r.Context(),
+		`SELECT id, action_id, action_label, status, args_json,
+		        COALESCE(commit_hash,''), username, created_at,
+		        started_at, ended_at, exit_code, COALESCE(log_path,'')
+		 FROM tasks ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+	out := make([]apiTaskRow, 0, limit)
+	for rows.Next() {
+		t, _, err := scanAPITaskRow(rows.Scan)
+		if err != nil {
+			apiErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out = append(out, t)
+	}
+	apiJSON(w, out)
+}
+
+// handleAPITask serves both /api/tasks/<id> (metadata JSON) and
+// /api/tasks/<id>/log (the raw log file as text/plain). One handler
+// because the path's prefix is shared and the variants are tiny.
+func (s *Server) handleAPITask(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		apiErr(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	parts := strings.SplitN(rest, "/", 2)
+	id, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, "bad id")
+		return
+	}
+	row := s.db.QueryRowContext(r.Context(),
+		`SELECT id, action_id, action_label, status, args_json,
+		        COALESCE(commit_hash,''), username, created_at,
+		        started_at, ended_at, exit_code, COALESCE(log_path,'')
+		 FROM tasks WHERE id=?`, id)
+	t, logPath, err := scanAPITaskRow(row.Scan)
+	if errors.Is(err, sql.ErrNoRows) {
+		apiErr(w, http.StatusNotFound, "no such task")
+		return
+	}
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(parts) == 2 && parts[1] == "log" {
+		if logPath == "" {
+			apiErr(w, http.StatusNotFound, "no log yet")
+			return
+		}
+		b, err := os.ReadFile(logPath)
+		if err != nil {
+			apiErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// ?tail=N  → last N bytes (cheap "give me the failure tail").
+		if v := r.URL.Query().Get("tail"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n < len(b) {
+				b = b[len(b)-n:]
+			}
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write(b)
+		return
+	}
+	apiJSON(w, t)
 }
 
 // ──────────────────────────────────────────────────────────────────────

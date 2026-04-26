@@ -31,6 +31,56 @@
   <a href="/run/runner-self-update" class="inline-block text-sm border rounded px-3 py-1.5 hover:bg-zinc-50">Update runner image →</a>
 </div>
 
+<div class="bg-white border rounded-lg p-5 mb-6">
+  <h2 class="font-medium mb-1">API tokens</h2>
+  <p class="text-xs text-zinc-500 mb-3">Bearer tokens for the read-only JSON API at <code>/api/tasks</code> + <code>/api/tasks/&lt;id&gt;/log</code>. Revoking is permanent.</p>
+
+  {{ if .NewToken }}
+  <div class="mb-4 border border-amber-300 bg-amber-50 text-amber-900 rounded p-3 text-sm">
+    <div class="font-medium mb-1">Token created — copy it now. It will not be shown again.</div>
+    <div class="font-mono text-xs break-all bg-white border rounded px-2 py-1 select-all">{{ .NewToken }}</div>
+    <div class="mt-2 text-xs">Name: <span class="font-medium">{{ .NewTokenName }}</span></div>
+  </div>
+  {{ end }}
+  {{ if .TokenError }}<div class="text-red-600 text-sm mb-2">{{ .TokenError }}</div>{{ end }}
+  {{ if .TokenRevoked }}<div class="text-green-700 text-sm mb-2">Token revoked.</div>{{ end }}
+
+  {{ if .APITokens }}
+  <table class="w-full text-sm mb-3">
+    <thead class="text-zinc-500 text-xs uppercase">
+      <tr><th class="text-left py-1">ID</th><th class="text-left">Name</th><th class="text-left">Created</th><th class="text-left">Last used</th><th class="text-left">Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{ range .APITokens }}
+      <tr class="border-t {{ if .RevokedAt.Valid }}text-zinc-400{{ end }}">
+        <td class="py-1 font-mono text-xs">{{ .ID }}</td>
+        <td>{{ .Name }}</td>
+        <td class="text-xs text-zinc-500">{{ timeAgo .CreatedAt }}</td>
+        <td class="text-xs text-zinc-500">{{ if .LastUsedAt.Valid }}{{ timeAgo .LastUsedAt.Time }}{{ else }}never{{ end }}</td>
+        <td class="text-xs">{{ if .RevokedAt.Valid }}revoked{{ else }}active{{ end }}</td>
+        <td class="text-right">
+          {{ if not .RevokedAt.Valid }}
+          <form action="/settings/api-tokens/revoke" method="post" class="inline" onsubmit="return confirm('Revoke {{ .Name }}? This cannot be undone.')">
+            <input type="hidden" name="id" value="{{ .ID }}">
+            <button class="text-xs text-red-600 hover:underline">revoke</button>
+          </form>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ end }}
+
+  <form action="/settings/api-tokens" method="post" class="flex gap-2 items-end">
+    <div class="flex-1">
+      <label class="block text-xs text-zinc-500 mb-1" for="token_name">New token name</label>
+      <input type="text" id="token_name" name="name" placeholder="e.g. ci-debug" maxlength="64" class="w-full border rounded px-2 py-1 text-sm" required>
+    </div>
+    <button class="text-sm border rounded px-3 py-1.5 hover:bg-zinc-50">Create token</button>
+  </form>
+</div>
+
 <div class="bg-white border rounded-lg p-5">
   <h2 class="font-medium mb-3">Change admin password</h2>
   {{ if .Error }}<div class="text-red-600 text-sm mb-2">{{ .Error }}</div>{{ end }}

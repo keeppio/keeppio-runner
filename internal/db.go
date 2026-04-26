@@ -3,10 +3,13 @@ package internal
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -56,6 +59,25 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS tasks_status_idx ON tasks(status);
 CREATE INDEX IF NOT EXISTS tasks_created_idx ON tasks(created_at);
+`,
+	},
+	{
+		// Read-only API for external observers (CI helpers, debug
+		// scripts, etc). Token format: kr_pat_<64 hex chars>. We store
+		// only the SHA-256 of the token — leak ⇒ revoke. SHA-256 is
+		// fine here (vs bcrypt) because the secret has 256 bits of
+		// entropy; bcrypt's slowness is meant for low-entropy human
+		// passwords, not random tokens.
+		name: "0002_api_tokens",
+		sql: `
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  name          TEXT NOT NULL,
+  hash          TEXT NOT NULL UNIQUE,
+  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_used_at  DATETIME,
+  revoked_at    DATETIME
+);
 `,
 	},
 }
@@ -225,4 +247,103 @@ func DeleteSession(ctx context.Context, db *sql.DB, id string) error {
 func PurgeExpiredSessions(ctx context.Context, db *sql.DB) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < CURRENT_TIMESTAMP`)
 	return err
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// API tokens (read-only Authorization: Bearer access)
+// ──────────────────────────────────────────────────────────────────────
+
+const apiTokenPrefix = "kr_pat_"
+
+// APIToken is the metadata side of a token. The actual secret is only
+// returned once, at creation time, by CreateAPIToken.
+type APIToken struct {
+	ID         int64
+	Name       string
+	CreatedAt  time.Time
+	LastUsedAt sql.NullTime
+	RevokedAt  sql.NullTime
+}
+
+func hashAPIToken(token string) string {
+	h := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(h[:])
+}
+
+// CreateAPIToken mints a new bearer token and stores its hash. The
+// token string is only returned here — surface it once to the operator
+// and never again. 32 random bytes = 256 bits of entropy.
+func CreateAPIToken(ctx context.Context, db *sql.DB, name string) (token string, id int64, err error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", 0, errors.New("token name is required")
+	}
+	if len(name) > 64 {
+		return "", 0, errors.New("token name must be ≤ 64 chars")
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", 0, err
+	}
+	token = apiTokenPrefix + hex.EncodeToString(buf)
+	res, err := db.ExecContext(ctx,
+		`INSERT INTO api_tokens(name, hash) VALUES(?, ?)`,
+		name, hashAPIToken(token))
+	if err != nil {
+		return "", 0, err
+	}
+	id, _ = res.LastInsertId()
+	return token, id, nil
+}
+
+func ListAPITokens(ctx context.Context, db *sql.DB) ([]APIToken, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, name, created_at, last_used_at, revoked_at
+		 FROM api_tokens ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []APIToken
+	for rows.Next() {
+		var t APIToken
+		if err := rows.Scan(&t.ID, &t.Name, &t.CreatedAt, &t.LastUsedAt, &t.RevokedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func RevokeAPIToken(ctx context.Context, db *sql.DB, id int64) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE api_tokens SET revoked_at = CURRENT_TIMESTAMP
+		 WHERE id=? AND revoked_at IS NULL`, id)
+	return err
+}
+
+// VerifyAPIToken returns the token's id+name if accepted. ErrNotFound
+// for unknown OR revoked tokens (never distinguish the two — same
+// information leakage class as login). Updates last_used_at so the
+// settings page can show idle tokens.
+func VerifyAPIToken(ctx context.Context, db *sql.DB, token string) (id int64, name string, err error) {
+	if !strings.HasPrefix(token, apiTokenPrefix) {
+		return 0, "", ErrNotFound
+	}
+	var revoked sql.NullTime
+	err = db.QueryRowContext(ctx,
+		`SELECT id, name, revoked_at FROM api_tokens WHERE hash=?`,
+		hashAPIToken(token)).Scan(&id, &name, &revoked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", ErrNotFound
+	}
+	if err != nil {
+		return 0, "", err
+	}
+	if revoked.Valid {
+		return 0, "", ErrNotFound
+	}
+	_, _ = db.ExecContext(ctx,
+		`UPDATE api_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id=?`, id)
+	return id, name, nil
 }
