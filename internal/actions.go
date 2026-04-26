@@ -175,17 +175,31 @@ func readInventoryGroup(repo, env, group string) ([]string, error) {
 	return []string{}, nil
 }
 
-// HostEntry is one entry under a `hosts:` key in hosts.yml. We keep
-// only the connection-relevant fields — anything else (host_vars
-// content, etc.) lives elsewhere in the repo.
+// HostEntry is one entry under a `hosts:` key in hosts.yml plus a few
+// fields lifted out of host_vars/<name>/vars.yml. Loaded eagerly so
+// the inventory pages can show domains and other context without each
+// page handler re-parsing the same yaml files.
 type HostEntry struct {
-	Name     string
-	Host     string
-	Port     int
-	User     string
-	// Raw is whatever the YAML had under this host, useful for the
-	// inventory detail page if we want to dump everything later.
+	Name string
+	Host string
+	Port int
+	User string
+	// PrimaryFqdn is the most useful "where does this thing live"
+	// FQDN. For tenants we use webapp_fqdn; for ops boxes the runner
+	// FQDN. Empty for hosts that don't have one (registered-but-
+	// unclaimed servers).
+	PrimaryFqdn string
+	// AllFqdns is the complete list (ordered: webapp, api, bridge,
+	// paynl, reverb). Used by the drill-down page.
+	AllFqdns []FqdnEntry
+	// Raw is whatever the YAML had under the hosts.yml entry — kept
+	// for future use.
 	Raw map[string]any
+}
+
+type FqdnEntry struct {
+	Label string // "webapp", "api", …
+	Fqdn  string
 }
 
 // HostGroup is one of clients/servers/ops/... A wrapper around a list
@@ -251,12 +265,54 @@ func ReadInventoryTree(repo, env string) (map[string]HostGroup, error) {
 			if v, ok := raw["ansible_port"].(int); ok {
 				h.Port = v
 			}
+			h.PrimaryFqdn, h.AllFqdns = readHostFqdns(repo, env, name)
 			hosts = append(hosts, h)
 		}
 		sort.Slice(hosts, func(i, j int) bool { return hosts[i].Name < hosts[j].Name })
 		out[groupName] = hosts
 	}
 	return out, nil
+}
+
+// readHostFqdns pulls FQDN-like fields out of host_vars/<name>/vars.yml.
+// We probe a fixed list of well-known field names so each row in the
+// inventory page can show the live domain. Missing file → empty
+// result. Order matters: the first non-empty becomes the primary FQDN
+// shown on the card.
+func readHostFqdns(repo, env, name string) (string, []FqdnEntry) {
+	path := filepath.Join(repo, "inventories", env, "host_vars", name, "vars.yml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return "", nil
+	}
+	probes := []struct {
+		Label string
+		Key   string
+	}{
+		{"webapp", "webapp_fqdn"},
+		{"api", "api_fqdn"},
+		{"bridge", "bridge_fqdn"},
+		{"paynl", "paynl_fqdn"},
+		{"reverb", "reverb_fqdn"},
+		{"semaphore", "semaphore_fqdn"}, // legacy, harmless if absent
+	}
+	var primary string
+	out := make([]FqdnEntry, 0, len(probes))
+	for _, p := range probes {
+		v, ok := doc[p.Key].(string)
+		if !ok || v == "" {
+			continue
+		}
+		if primary == "" {
+			primary = v
+		}
+		out = append(out, FqdnEntry{Label: p.Label, Fqdn: v})
+	}
+	return primary, out
 }
 
 // ghcrTags queries the GitHub container registry for an org-owned
