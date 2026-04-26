@@ -276,6 +276,11 @@ func (r *Runner) run(ctx context.Context, taskID int64) {
 	cmd.Env = append(os.Environ(),
 		"ANSIBLE_FORCE_COLOR=0",       // log file readability
 		"ANSIBLE_HOST_KEY_CHECKING=False",
+		// Export the vault password file path so any ansible-playbook
+		// subprocess the playbook itself spawns (e.g. preflight's
+		// --syntax-check sweep) can decrypt the vault without us
+		// having to forward the --vault-id CLI flag explicitly.
+		"ANSIBLE_VAULT_PASSWORD_FILE=" + r.cfg.VaultPasswordFile,
 	)
 	r.line(taskID, logFile, "$ ansible-playbook "+strings.Join(redactSecrets(args, action), " "))
 	err = r.runCmd(ctx, cancelCh, taskID, logFile, cmd)
