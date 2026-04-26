@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -96,6 +98,7 @@ func (s *Server) Mux() *http.ServeMux {
 	mux.HandleFunc("/inventory/", s.requireAuth(s.handleInventoryShow)) // /inventory/<group>/<name>
 	mux.HandleFunc("/settings", s.requireAuth(s.handleSettingsGet))
 	mux.HandleFunc("/settings.submit", s.requireAuth(s.handleSettingsPost))
+	mux.HandleFunc("/settings/pull-repo", s.requireAuth(s.handleSettingsPullRepo))
 	mux.HandleFunc("/ws/tasks/", s.requireAuth(s.handleTaskWS))          // /ws/tasks/<id>
 	return mux
 }
@@ -581,11 +584,58 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSettingsGet(w http.ResponseWriter, r *http.Request) {
 	commit := strings.TrimSpace(captureCmd(s.cfg.RepoPath, "git", "rev-parse", "HEAD"))
+	subject := strings.TrimSpace(captureCmd(s.cfg.RepoPath, "git", "log", "-1", "--pretty=%s"))
+	q := r.URL.Query()
 	s.render(w, "settings.html", map[string]any{
-		"Env":    s.cfg.Env,
-		"User":   currentUser(r),
-		"Commit": commit,
+		"Env":           s.cfg.Env,
+		"User":          currentUser(r),
+		"Commit":        commit,
+		"CommitSubject": subject,
+		"PullOK":        q.Get("pulled") == "1",
+		"PullErr":       q.Get("err"),
 	})
+}
+
+// handleSettingsPullRepo runs the same git fetch + reset that the
+// background ticker does, but synchronously and on demand. Reloads
+// actions.yml afterwards so the dashboard reflects any new actions
+// without waiting for the next 30s tick.
+func (s *Server) handleSettingsPullRepo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := pullRepoForRunner(s.cfg); err != nil {
+		http.Redirect(w, r, "/settings?err="+url.QueryEscape(err.Error()), http.StatusSeeOther)
+		return
+	}
+	if err := s.cat.Load(filepath.Join(s.cfg.RepoPath, "actions.yml")); err != nil {
+		// Don't surface the catalog error as a hard failure — pull
+		// itself succeeded; actions.yml might be transiently absent.
+		http.Redirect(w, r, "/settings?pulled=1&err="+url.QueryEscape("repo pulled but actions reload: "+err.Error()), http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/settings?pulled=1", http.StatusSeeOther)
+}
+
+// pullRepoForRunner mirrors main.pullRepo. Duplicated here to avoid a
+// circular import; both call out to git via os/exec.
+func pullRepoForRunner(cfg *Config) error {
+	out, err := captureExec(cfg.RepoPath, "git", "fetch", "--quiet", "origin", cfg.RepoBranch)
+	if err != nil {
+		return fmt.Errorf("git fetch: %w: %s", err, out)
+	}
+	if out, err = captureExec(cfg.RepoPath, "git", "reset", "--hard", "origin/"+cfg.RepoBranch); err != nil {
+		return fmt.Errorf("git reset: %w: %s", err, out)
+	}
+	return nil
+}
+
+func captureExec(dir, name string, args ...string) (string, error) {
+	c := exec.Command(name, args...)
+	c.Dir = dir
+	b, err := c.CombinedOutput()
+	return string(b), err
 }
 
 func (s *Server) handleSettingsPost(w http.ResponseWriter, r *http.Request) {

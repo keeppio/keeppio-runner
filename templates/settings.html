@@ -1,14 +1,38 @@
 {{ define "settings.html" }}{{ template "header" . }}
 <h1 class="text-xl font-semibold mb-4">Settings</h1>
 
-<div class="bg-white border rounded-lg p-5 mb-6 text-sm">
-  <h2 class="font-medium mb-2">Repository</h2>
-  <div class="text-zinc-600">Latest pulled commit: <span class="font-mono">{{ if .Commit }}{{ slice .Commit 0 7 }}{{ else }}—{{ end }}</span></div>
-  <div class="text-zinc-500 text-xs mt-1">Each task fetches + hard-resets to <code>origin/main</code> before running.</div>
+{{ if .PullOK }}
+<div class="mb-4 border border-green-300 bg-green-50 text-green-800 rounded p-3 text-sm">
+  Pulled. Latest commit is now <span class="font-mono">{{ if .Commit }}{{ slice .Commit 0 7 }}{{ end }}</span>.
+  {{ if .PullErr }}<div class="mt-1 text-amber-700">{{ .PullErr }}</div>{{ end }}
+</div>
+{{ else if .PullErr }}
+<div class="mb-4 border border-red-300 bg-red-50 text-red-800 rounded p-3 text-sm">{{ .PullErr }}</div>
+{{ end }}
+
+<div class="bg-white border rounded-lg p-5 mb-6">
+  <h2 class="font-medium mb-3">Repository</h2>
+  <div class="text-sm">
+    <div class="flex items-baseline gap-2">
+      <span class="text-zinc-500">Latest pulled commit:</span>
+      <span class="font-mono">{{ if .Commit }}{{ slice .Commit 0 7 }}{{ else }}—{{ end }}</span>
+    </div>
+    {{ if .CommitSubject }}<div class="text-zinc-500 text-xs mt-1">{{ .CommitSubject }}</div>{{ end }}
+    <p class="text-xs text-zinc-500 mt-2">The runner re-fetches + hard-resets to <code>origin/main</code> automatically every 30 seconds and before every task. The button below skips the wait.</p>
+    <form action="/settings/pull-repo" method="post" class="mt-3">
+      <button class="text-sm border rounded px-3 py-1.5 hover:bg-zinc-50">Pull infrastructure now</button>
+    </form>
+  </div>
+</div>
+
+<div class="bg-white border rounded-lg p-5 mb-6">
+  <h2 class="font-medium mb-3">Runner image</h2>
+  <p class="text-sm text-zinc-500 mb-3">Pull <code>ghcr.io/keeppio/keeppio-runner:main</code> on ops01 and recreate every runner container. The container running this task gets killed mid-flight (the daemon completes the swap regardless) — reload the page after ~10s to see the new build.</p>
+  <a href="/run/runner-self-update" class="inline-block text-sm border rounded px-3 py-1.5 hover:bg-zinc-50">Update runner image →</a>
 </div>
 
 <div class="bg-white border rounded-lg p-5">
-  <h2 class="font-medium mb-2">Change admin password</h2>
+  <h2 class="font-medium mb-3">Change admin password</h2>
   {{ if .Error }}<div class="text-red-600 text-sm mb-2">{{ .Error }}</div>{{ end }}
   <form action="/settings.submit" method="post" class="space-y-3">
     <div>
