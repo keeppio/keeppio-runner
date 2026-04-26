@@ -27,8 +27,11 @@
       <div class="text-xs text-zinc-500 mt-1 font-mono truncate">
         {{- /* Servers always show the raw IP — they ARE the host, so
              collapsing to a co-resident tenant's name is misleading.
-             Tenants + ops keep the OnServer resolution. */ -}}
-        {{ .User }}@{{ if and (ne $group "servers") .OnServer }}{{ .OnServer }}{{ else }}{{ .Host }}{{ end }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}
+             Tenants + ops prefer OnServerOriginal (the persisted
+             on_server: in host_vars/<slug>/vars.yml — survives
+             onboard/rename/move) and fall back to OnServer (the
+             co-located-resolution heuristic) and finally the bare IP. */ -}}
+        {{ .User }}@{{ if and (ne $group "servers") .OnServerOriginal }}{{ .OnServerOriginal }}{{ else if and (ne $group "servers") .OnServer }}{{ .OnServer }}{{ else }}{{ .Host }}{{ end }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}
       </div>
     </a>
     {{ end }}

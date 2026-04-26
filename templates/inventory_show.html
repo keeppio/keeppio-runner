@@ -12,7 +12,7 @@
   <div><span class="text-zinc-500">IP:</span> <span class="font-mono">{{ .Host.Host }}</span></div>
   <div><span class="text-zinc-500">User:</span> <span class="font-mono">{{ .Host.User }}</span></div>
   <div><span class="text-zinc-500">SSH port:</span> <span class="font-mono">{{ .Host.Port }}</span></div>
-  {{ if .Host.OnServer }}<div><span class="text-zinc-500">On server:</span> <span class="font-mono">{{ .Host.OnServer }}</span></div>{{ end }}
+  {{ if .Host.OnServerOriginal }}<div><span class="text-zinc-500">On server:</span> <span class="font-mono">{{ .Host.OnServerOriginal }}</span></div>{{ else if .Host.OnServer }}<div><span class="text-zinc-500">On server:</span> <span class="font-mono">{{ .Host.OnServer }}</span></div>{{ end }}
 </div>
 
 {{ if .Host.AllFqdns }}

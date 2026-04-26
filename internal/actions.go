@@ -204,6 +204,14 @@ type HostEntry struct {
 	// same IP. Lets the inventory cards show "user@<server-name>"
 	// instead of the bare IP. Empty when no co-resident is found.
 	OnServer string
+	// OnServerOriginal is the registered server name a tenant was
+	// onboarded onto, persisted in host_vars/<slug>/vars.yml under
+	// `on_server:`. Survives onboard, rename and move (the move
+	// playbook rewrites it to the new server). Preferred over OnServer
+	// for display because it's authoritative — the inventory's "co-
+	// located resolution" can't recover the original server name once
+	// onboard rolls the host into the `clients` group.
+	OnServerOriginal string
 	// Raw is whatever the YAML had under the hosts.yml entry — kept
 	// for future use.
 	Raw map[string]any
@@ -277,7 +285,7 @@ func ReadInventoryTree(repo, env string) (map[string]HostGroup, error) {
 			if v, ok := raw["ansible_port"].(int); ok {
 				h.Port = v
 			}
-			h.PrimaryFqdn, h.AllFqdns = readHostFqdns(repo, env, name)
+			h.PrimaryFqdn, h.AllFqdns, h.OnServerOriginal = readHostVars(repo, env, name)
 			hosts = append(hosts, h)
 		}
 		sort.Slice(hosts, func(i, j int) bool { return hosts[i].Name < hosts[j].Name })
@@ -313,21 +321,25 @@ func pickColocated(tree map[string]HostGroup, group string, h HostEntry, selfGro
 	return ""
 }
 
-// readHostFqdns pulls FQDN-like fields out of host_vars/<name>/vars.yml.
-// We probe a fixed list of well-known field names so each row in the
-// inventory page can show the live domain. Missing file → empty
-// result. Order matters: the first non-empty becomes the primary FQDN
-// shown on the card.
-func readHostFqdns(repo, env, name string) (string, []FqdnEntry) {
+// readHostVars pulls FQDN-like fields and the persisted `on_server`
+// out of host_vars/<name>/vars.yml. We probe a fixed list of well-known
+// FQDN field names so each row in the inventory page can show the live
+// domain. The third return is the original server slug the tenant was
+// onboarded onto (or moved to), used by the inventory cards in
+// preference to the co-located-resolution. Missing file → empty
+// result. Order matters for FQDNs: the first non-empty becomes the
+// primary FQDN shown on the card.
+func readHostVars(repo, env, name string) (string, []FqdnEntry, string) {
 	path := filepath.Join(repo, "inventories", env, "host_vars", name, "vars.yml")
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", nil
+		return "", nil, ""
 	}
 	var doc map[string]any
 	if err := yaml.Unmarshal(b, &doc); err != nil {
-		return "", nil
+		return "", nil, ""
 	}
+	onServer, _ := doc["on_server"].(string)
 	probes := []struct {
 		Label string
 		Key   string
@@ -375,7 +387,7 @@ func readHostFqdns(repo, env, name string) (string, []FqdnEntry) {
 			out = append(out, FqdnEntry{Label: "runner-" + label, Fqdn: fqdn})
 		}
 	}
-	return primary, out
+	return primary, out, onServer
 }
 
 // ghcrTags queries the GitHub container registry for an org-owned
