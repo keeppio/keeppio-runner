@@ -298,7 +298,6 @@ func readHostFqdns(repo, env, name string) (string, []FqdnEntry) {
 		{"bridge", "bridge_fqdn"},
 		{"paynl", "paynl_fqdn"},
 		{"reverb", "reverb_fqdn"},
-		{"semaphore", "semaphore_fqdn"}, // legacy, harmless if absent
 	}
 	var primary string
 	out := make([]FqdnEntry, 0, len(probes))
@@ -311,6 +310,31 @@ func readHostFqdns(repo, env, name string) (string, []FqdnEntry) {
 			primary = v
 		}
 		out = append(out, FqdnEntry{Label: p.Label, Fqdn: v})
+	}
+
+	// Ops boxes use a nested `runner_instances:` list of
+	// {name, fqdn, port, ...}. Walk it so each runner gets its own
+	// row. Same shape would naturally extend to other future ops
+	// services that follow the *_instances pattern.
+	if instances, ok := doc["runner_instances"].([]any); ok {
+		for _, raw := range instances {
+			m, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			fqdn, _ := m["fqdn"].(string)
+			if fqdn == "" {
+				continue
+			}
+			label, _ := m["name"].(string)
+			if label == "" {
+				label = "runner"
+			}
+			if primary == "" {
+				primary = fqdn
+			}
+			out = append(out, FqdnEntry{Label: "runner-" + label, Fqdn: fqdn})
+		}
 	}
 	return primary, out
 }
