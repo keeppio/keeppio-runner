@@ -1,10 +1,12 @@
 package internal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -180,9 +182,11 @@ func FetchTenantStatus(ctx context.Context, cfg *Config, slug, webappFqdn string
 	return out
 }
 
-// kumaCall runs `wget -qO- http://localhost:3001<path>` inside the
-// tenant's Kuma container via SSH → docker exec. Returns the raw body
-// bytes or an error including stderr context.
+// kumaCall runs `curl http://localhost:3001<path>` inside the tenant's
+// Kuma container via SSH → docker exec. Returns the raw body bytes or
+// an error including stderr context. Uses sshExecQuiet so SSH's
+// "Warning: Permanently added ..." line doesn't end up corrupting the
+// JSON response (sshExec uses CombinedOutput which would mix stderr).
 func kumaCall(ctx context.Context, ops tenantConn, slug, path string) ([]byte, error) {
 	if !isSafeKumaPath(path) {
 		return nil, fmt.Errorf("unsafe path: %q", path)
@@ -197,12 +201,51 @@ func kumaCall(ctx context.Context, ops tenantConn, slug, path string) ([]byte, e
 		"docker exec keeppio-kuma-%s curl -fsSm5 http://localhost:3001%s",
 		slug, path,
 	)
-	out, err := sshExec(ctx, ops, cmd)
+	out, stderr, err := sshExecQuiet(ctx, ops, cmd)
 	if err != nil {
-		return nil, fmt.Errorf("ssh kuma %s%s: %w: %s", slug, path, err,
-			strings.TrimSpace(string(out)))
+		msg := strings.TrimSpace(string(stderr))
+		if msg == "" {
+			msg = strings.TrimSpace(string(out))
+		}
+		return nil, fmt.Errorf("ssh kuma %s%s: %w: %s", slug, path, err, msg)
 	}
 	return out, nil
+}
+
+// sshExecQuiet is sshExec's sibling that returns stdout and stderr
+// separately, AND adds -o LogLevel=ERROR so SSH's host-key-additions
+// warning doesn't show up at all. Used when stdout is consumed as
+// structured data (JSON) — mixing in stderr would corrupt parsing.
+func sshExecQuiet(ctx context.Context, t tenantConn, command string) ([]byte, []byte, error) {
+	if t.Host == "" {
+		return nil, nil, errors.New("tenant has no ansible_host IP")
+	}
+	user := t.User
+	if user == "" {
+		user = "root"
+	}
+	port := t.Port
+	if port == 0 {
+		port = 22
+	}
+	args := []string{
+		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "BatchMode=yes",
+		"-o", "ConnectTimeout=10",
+		"-o", "LogLevel=ERROR",
+		"-p", fmt.Sprintf("%d", port),
+		fmt.Sprintf("%s@%s", user, t.Host),
+		command,
+	}
+	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(cmdCtx, "ssh", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
 }
 
 // isSafeKumaPath gates the command we ssh+exec — we ONLY ever talk to
