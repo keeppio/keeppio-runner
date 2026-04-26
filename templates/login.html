@@ -12,6 +12,13 @@
       background: url('/static/background.png') center/cover no-repeat;
       opacity: 0.06; pointer-events: none; z-index: 0;
     }
+    {{ if eq .Env "production" }}
+    body { background-color: rgba(255, 230, 230, 1); }
+    body::after {
+      content: ""; position: fixed; inset: 0;
+      background: rgba(220, 38, 38, 0.08); pointer-events: none; z-index: 0;
+    }
+    {{ end }}
     form { position: relative; z-index: 1; }
   </style>
 </head>
