@@ -106,6 +106,16 @@ type ctxKey int
 
 const userKey ctxKey = 0
 
+// resolvedField is what the run form template iterates over. Used in
+// both the GET-form path and the POST-validation-error re-render so
+// the template can rely on a single shape (esp. .Value).
+type resolvedField struct {
+	Field
+	Options []string
+	Value   string
+	Error   string
+}
+
 func (s *Server) requireAuth(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookie)
@@ -206,11 +216,6 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	// Resolve dropdowns at form-render time. Failures show inline so
 	// the operator can see WHY a list is empty.
-	type resolvedField struct {
-		Field
-		Options []string
-		Error   string
-	}
 	fields := make([]resolvedField, 0, len(action.Fields))
 	for _, f := range action.Fields {
 		rf := resolvedField{Field: f}
@@ -240,12 +245,6 @@ func (s *Server) handleRunSubmit(w http.ResponseWriter, r *http.Request, action 
 	args, err := ValidateSubmission(action, r.PostForm)
 	if err != nil {
 		// Re-render the form with the error + previously-entered values.
-		type resolvedField struct {
-			Field
-			Options []string
-			Value   string
-			Error   string
-		}
 		fields := make([]resolvedField, 0, len(action.Fields))
 		for _, f := range action.Fields {
 			rf := resolvedField{Field: f, Value: r.FormValue(f.Name)}
