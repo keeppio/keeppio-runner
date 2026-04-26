@@ -35,15 +35,19 @@
         <td class="px-3 py-2 text-right w-40">
           <label class="inline-flex items-center cursor-pointer select-none gap-2"
                  title="{{ if $isOff }}Service is OFF — click to bring it back online.{{ else }}Service is ON — click to serve a static off-page instead.{{ end }}">
-            <span class="text-xs text-zinc-500">{{ if $isOff }}OFF{{ else }}ON{{ end }}</span>
-            <input
-              type="checkbox"
-              class="domain-toggle"
-              data-slug="{{ $slug }}"
-              data-key="{{ .Label }}"
-              data-fqdn="{{ .Fqdn }}"
-              {{ if not $isOff }}checked{{ end }}
-              aria-label="Toggle {{ .Label }} on/off">
+            <span class="text-xs font-medium tracking-wide w-8 text-right {{ if $isOff }}text-amber-600{{ else }}text-emerald-600{{ end }}">{{ if $isOff }}OFF{{ else }}ON{{ end }}</span>
+            <span class="relative inline-block align-middle">
+              <input
+                type="checkbox"
+                class="peer sr-only domain-toggle"
+                data-slug="{{ $slug }}"
+                data-key="{{ .Label }}"
+                data-fqdn="{{ .Fqdn }}"
+                {{ if not $isOff }}checked{{ end }}
+                aria-label="Toggle {{ .Label }} on/off">
+              <span class="block w-9 h-5 rounded-full bg-zinc-300 peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-offset-1 peer-focus:ring-emerald-400 transition-colors"></span>
+              <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transform transition-transform peer-checked:translate-x-4"></span>
+            </span>
           </label>
         </td>
         {{ end }}
@@ -142,8 +146,12 @@
             <td class="px-3 py-2 text-zinc-600">${escapeHtml(c.status)}</td>
             <td class="px-3 py-2 text-right">
               <label class="inline-flex items-center cursor-pointer select-none gap-2" title="${c.running ? 'Stop container (persists)' : 'Start container (persists)'}">
-                <span class="text-xs text-zinc-500">${c.running ? 'ON' : 'OFF'}</span>
-                <input type="checkbox" class="container-toggle" data-name="${escapeHtml(c.name)}" ${c.running ? 'checked' : ''} aria-label="Toggle ${escapeHtml(c.name)}">
+                <span class="text-xs font-medium tracking-wide w-8 text-right ${c.running ? 'text-emerald-600' : 'text-amber-600'}">${c.running ? 'ON' : 'OFF'}</span>
+                <span class="relative inline-block align-middle">
+                  <input type="checkbox" class="peer sr-only container-toggle" data-name="${escapeHtml(c.name)}" ${c.running ? 'checked' : ''} aria-label="Toggle ${escapeHtml(c.name)}">
+                  <span class="block w-9 h-5 rounded-full bg-zinc-300 peer-checked:bg-emerald-500 peer-focus:ring-2 peer-focus:ring-offset-1 peer-focus:ring-emerald-400 transition-colors"></span>
+                  <span class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transform transition-transform peer-checked:translate-x-4"></span>
+                </span>
               </label>
             </td>
           </tr>`;
