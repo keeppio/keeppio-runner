@@ -107,12 +107,14 @@ func (s *Server) Mux() *http.ServeMux {
 	mux.HandleFunc("/settings/api-tokens/revoke", s.requireAuth(s.handleAPITokenRevoke)) // POST: revoke
 	mux.HandleFunc("/ws/tasks/", s.requireAuth(s.handleTaskWS))          // /ws/tasks/<id>
 
-	// Read-only JSON API for external observers. Auth: Authorization:
-	// Bearer kr_pat_…  (token issued from /settings). Strictly GET,
-	// strictly idempotent — no state-change endpoints. State-change
-	// would require expanding the threat model considerably.
+	// JSON API for external observers + automation. Auth: Authorization:
+	// Bearer kr_pat_…  (token issued from /settings). Reads are GETs;
+	// the one write endpoint is /api/runs (POST) — same code path as the
+	// UI's run form, same field validation, same Enqueue. Cancel/state-
+	// change endpoints stay out for now (the UI is fine for those).
 	mux.HandleFunc("/api/tasks", s.requireAPIAuth(s.handleAPITasksList))
 	mux.HandleFunc("/api/tasks/", s.requireAPIAuth(s.handleAPITask))
+	mux.HandleFunc("/api/runs", s.requireAPIAuth(s.handleAPIRunCreate))
 	return mux
 }
 
@@ -779,10 +781,14 @@ func (s *Server) handleAPITokenRevoke(w http.ResponseWriter, r *http.Request) {
 // Read-only JSON API
 // ──────────────────────────────────────────────────────────────────────
 
+const apiTokenNameKey ctxKey = 1
+
 // requireAPIAuth wraps a handler with bearer-token authentication. On
 // success the inner handler runs with hardened response headers
-// (no-store / nosniff). No CORS preflight handling — by design: the
-// API isn't meant to be called from browsers.
+// (no-store / nosniff) and `currentAPITokenName(r)` exposes the token's
+// human-readable name (so audit rows say `api:claude-debug` instead of
+// just `api`). No CORS preflight handling — by design: the API isn't
+// meant to be called from browsers.
 func (s *Server) requireAPIAuth(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const pfx = "Bearer "
@@ -792,14 +798,23 @@ func (s *Server) requireAPIAuth(handler http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		token := strings.TrimPrefix(auth, pfx)
-		if _, _, err := VerifyAPIToken(r.Context(), s.db, token); err != nil {
+		_, name, err := VerifyAPIToken(r.Context(), s.db, token)
+		if err != nil {
 			apiErr(w, http.StatusUnauthorized, "invalid or revoked token")
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
-		handler(w, r)
+		ctx := context.WithValue(r.Context(), apiTokenNameKey, name)
+		handler(w, r.WithContext(ctx))
 	}
+}
+
+func currentAPITokenName(r *http.Request) string {
+	if v, ok := r.Context().Value(apiTokenNameKey).(string); ok {
+		return v
+	}
+	return "unknown"
 }
 
 func apiErr(w http.ResponseWriter, code int, msg string) {
@@ -933,6 +948,63 @@ func (s *Server) handleAPITask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	apiJSON(w, t)
+}
+
+// handleAPIRunCreate enqueues a task. Same code path as the UI's run
+// form (ValidateSubmission + Runner.Enqueue) so action-schema rules
+// (required fields, regex patterns, enum sources) apply identically.
+//
+// Request:  POST /api/runs   { "action_id": "<id>", "args": {"k":"v",...} }
+// Response: 201 { "id": <task_id>, "status": "queued", "url": "/tasks/<id>" }
+//
+// Username on the row is `api:<token-name>` so the audit trail shows
+// which token initiated the run, not just "api".
+func (s *Server) handleAPIRunCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		apiErr(w, http.StatusMethodNotAllowed, "POST only")
+		return
+	}
+	var body struct {
+		ActionID string            `json:"action_id"`
+		Args     map[string]string `json:"args"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&body); err != nil {
+		apiErr(w, http.StatusBadRequest, "invalid json: "+err.Error())
+		return
+	}
+	action, ok := s.cat.ByID(body.ActionID)
+	if !ok {
+		apiErr(w, http.StatusNotFound, "no such action: "+body.ActionID)
+		return
+	}
+	// Reuse ValidateSubmission's signature: it takes url.Values
+	// (map[string][]string), which is what r.PostForm is. Wrap our
+	// JSON map in that shape so the schema rules apply unchanged.
+	form := make(map[string][]string, len(body.Args))
+	for k, v := range body.Args {
+		form[k] = []string{v}
+	}
+	args, err := ValidateSubmission(action, form)
+	if err != nil {
+		apiErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	user := "api:" + currentAPITokenName(r)
+	taskID, err := s.runner.Enqueue(r.Context(), action, args, user)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Headers MUST be set before WriteHeader; can't use apiJSON helper
+	// here because it sets Content-Type internally and WriteHeader has
+	// already locked the header set by then.
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"id":     taskID,
+		"status": "queued",
+		"url":    fmt.Sprintf("/tasks/%d", taskID),
+	})
 }
 
 // ──────────────────────────────────────────────────────────────────────
