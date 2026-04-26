@@ -74,12 +74,12 @@ func main() {
 	if err := loadActions(cfg.RepoPath, cat); err != nil {
 		log.Fatalf("load actions.yml: %v", err)
 	}
-	// Refresh the repo + actions every 30s. Each task run also
-	// fetches+resets, but the periodic loop is what keeps dropdowns
-	// (read from inventory at form-render time) and the dashboard's
-	// action list current between runs.
+	// Refresh the repo + actions every 5 min. Each task run already
+	// fetches+resets, so the periodic loop only catches *out-of-band*
+	// pushes (e.g. someone editing actions.yml directly via git). 30 s
+	// was overkill for a once-a-week event; 5 min still feels live.
 	go func() {
-		t := time.NewTicker(30 * time.Second)
+		t := time.NewTicker(5 * time.Minute)
 		defer t.Stop()
 		for {
 			select {
