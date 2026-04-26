@@ -15,6 +15,97 @@
   {{ if .Host.OnServerOriginal }}<div><span class="text-zinc-500">On server:</span> <span class="font-mono">{{ .Host.OnServerOriginal }}</span></div>{{ else if .Host.OnServer }}<div><span class="text-zinc-500">On server:</span> <span class="font-mono">{{ .Host.OnServer }}</span></div>{{ end }}
 </div>
 
+{{ if .IsTenant }}
+<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2 flex items-center gap-2">
+  <span>Service status</span>
+  <span id="status-summary" class="text-xs text-zinc-400 normal-case tracking-normal italic">loading…</span>
+  <a id="status-public-link" href="https://status.{{ .Host.PrimaryFqdn }}/status/{{ .Host.Name }}" target="_blank" rel="noopener"
+     class="ml-auto text-xs text-blue-600 hover:underline normal-case tracking-normal">public page →</a>
+</h2>
+<div class="bg-white border rounded-lg p-3 mb-6 text-sm">
+  <div id="status-monitors" class="flex flex-wrap gap-2">
+    <span class="text-zinc-400 italic">Loading…</span>
+  </div>
+  <div id="status-uptime" class="mt-2 text-xs text-zinc-500 hidden">
+    <span class="font-medium">24h uptime:</span> <span id="status-uptime-value">—</span>
+  </div>
+</div>
+<script>
+(function() {
+  const slug = {{ .Host.Name }};
+  const summary  = document.getElementById('status-summary');
+  const monitors = document.getElementById('status-monitors');
+  const uptimeBox   = document.getElementById('status-uptime');
+  const uptimeValue = document.getElementById('status-uptime-value');
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // 1=up, 0=down, 2=pending, 3=maintenance — Kuma's heartbeat status enum.
+  function badgeFor(status) {
+    switch (status) {
+      case 1: return 'bg-green-100 text-green-800';
+      case 0: return 'bg-red-100 text-red-800';
+      case 2: return 'bg-zinc-100 text-zinc-700';
+      case 3: return 'bg-amber-100 text-amber-800';
+      default: return 'bg-zinc-100 text-zinc-700';
+    }
+  }
+  function labelFor(status) {
+    switch (status) {
+      case 1: return 'up';
+      case 0: return 'down';
+      case 2: return 'pending';
+      case 3: return 'maint';
+      default: return '?';
+    }
+  }
+
+  async function load() {
+    try {
+      const r = await fetch(`/ui/tenants/${encodeURIComponent(slug)}/status`, { headers: { 'Accept': 'application/json' } });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+      }
+      const d = await r.json();
+      if (d.error) {
+        summary.textContent = `unavailable (${d.error.split(':')[0]})`;
+        summary.className = 'text-xs text-zinc-500 normal-case tracking-normal italic';
+        monitors.innerHTML = '<span class="text-zinc-400 italic">No data — Kuma may still be seeding.</span>';
+        return;
+      }
+      const total = d.total | 0;
+      const up = d.up | 0;
+      const down = d.down | 0;
+      summary.textContent = `${up}/${total} up${down ? ` — ${down} DOWN` : ''}`;
+      summary.className = `text-xs normal-case tracking-normal italic ${down ? 'text-red-600' : (total === 0 ? 'text-zinc-400' : 'text-emerald-700')}`;
+      if (Array.isArray(d.monitors) && d.monitors.length > 0) {
+        monitors.innerHTML = d.monitors.map(m => `
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded ${badgeFor(m.status)} text-xs">
+            <span class="font-mono">${escapeHtml(m.name)}</span>
+            <span class="uppercase tracking-wide text-[10px]">${labelFor(m.status)}</span>
+          </span>`).join('');
+      } else {
+        monitors.innerHTML = '<span class="text-zinc-400 italic">No monitors yet.</span>';
+      }
+      if (typeof d.uptime_24h === 'number') {
+        uptimeValue.textContent = (d.uptime_24h * 100).toFixed(2) + '%';
+        uptimeBox.classList.remove('hidden');
+      }
+    } catch (e) {
+      summary.textContent = '';
+      monitors.innerHTML = `<span class="text-red-600 text-xs">Error: ${escapeHtml(e.message || e)}</span>`;
+    }
+  }
+  load();
+})();
+</script>
+{{ end }}
+
 {{ if .Host.AllFqdns }}
 <h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2">Domains</h2>
 <div class="bg-white border rounded-lg overflow-hidden mb-6">

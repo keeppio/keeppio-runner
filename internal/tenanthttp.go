@@ -1,11 +1,13 @@
 package internal
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // ──────────────────────────────────────────────────────────────────────
@@ -83,9 +85,77 @@ func (s *Server) dispatchTenants(w http.ResponseWriter, r *http.Request, prefix,
 		}
 		apiErr(w, http.StatusNotFound, "unknown domains route")
 
+	case "status":
+		// /<slug>/status        GET → summary for a single tenant
+		// /_all/status          GET → batch summary for all tenants
+		// (the slug `_all` is reserved — handled here rather than
+		// spelled as a separate /api/tenants-batch route to keep the
+		// existing dispatcher pattern intact.)
+		if len(parts) != 2 {
+			apiErr(w, http.StatusNotFound, "unknown status route")
+			return
+		}
+		if slug == "_all" {
+			s.handleTenantStatusBatch(w, r)
+			return
+		}
+		s.handleTenantStatus(w, r, slug)
+
 	default:
 		apiErr(w, http.StatusNotFound, "unknown tenant resource: "+resource)
 	}
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Status — per-tenant Uptime Kuma summary (read-only)
+// ──────────────────────────────────────────────────────────────────────
+
+func (s *Server) handleTenantStatus(w http.ResponseWriter, r *http.Request, slug string) {
+	if r.Method != http.MethodGet {
+		apiErr(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	// Resolve the tenant's webapp_fqdn from inventory so the response
+	// can carry the public status_url even when Kuma isn't reachable.
+	tree, err := ReadInventoryTree(s.cfg.RepoPath, s.cfg.Env)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var fqdn string
+	for _, h := range tree["clients"] {
+		if h.Name == slug {
+			fqdn = h.PrimaryFqdn
+			break
+		}
+	}
+	if fqdn == "" {
+		apiErr(w, http.StatusNotFound, "tenant not found in clients group")
+		return
+	}
+	// Cap to 12s — slow ssh shouldn't hang the page render. The
+	// FetchTenantStatus path captures errors as Error fields, so the
+	// caller still gets a structured summary on timeout.
+	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+	defer cancel()
+	out := FetchTenantStatus(ctx, s.cfg, slug, fqdn)
+	apiJSON(w, out)
+}
+
+func (s *Server) handleTenantStatusBatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		apiErr(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	// 30s cap — the home page calls this once per render. Inside,
+	// BatchTenantStatus runs up to 4 fetches in parallel, each with a
+	// 30s ssh timeout, but typical run is ~3-5s for ~10 tenants.
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	results := BatchTenantStatus(ctx, s.cfg)
+	apiJSON(w, map[string]any{
+		"tenants": results,
+	})
 }
 
 // ──────────────────────────────────────────────────────────────────────
