@@ -53,14 +53,19 @@ func (s *Server) dispatchTenants(w http.ResponseWriter, r *http.Request, prefix,
 
 	switch resource {
 	case "containers":
-		// /<slug>/containers              → list
-		// /<slug>/containers/<name>/toggle → toggle
+		// /<slug>/containers                → list
+		// /<slug>/containers/disabled       → list persisted-off names
+		// /<slug>/containers/<name>/toggle  → toggle
 		if len(parts) == 2 {
 			s.handleTenantContainersList(w, r, slug)
 			return
 		}
+		if len(parts) == 3 && parts[2] == "disabled" {
+			s.handleTenantContainersDisabledList(w, r, slug)
+			return
+		}
 		if len(parts) == 4 && parts[3] == "toggle" {
-			s.handleTenantContainerToggle(w, r, slug, parts[2])
+			s.handleTenantContainerToggle(w, r, slug, parts[2], who)
 			return
 		}
 		apiErr(w, http.StatusNotFound, "unknown containers route")
@@ -103,7 +108,17 @@ func (s *Server) handleTenantContainersList(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (s *Server) handleTenantContainerToggle(w http.ResponseWriter, r *http.Request, slug, name string) {
+// handleTenantContainerToggle does TWO things:
+//   1. Live `docker stop`/`docker start` over SSH for instant feedback.
+//   2. Enqueue tenant-container-toggle so the desired state is committed
+//      to host_vars/<slug>/disabled_containers.yml — the apps role
+//      re-applies it on every provision/deploy, so the toggle survives
+//      compose recreation, host rebuilds, tenant move/recover etc.
+//
+// Step 1 errors are returned as 502; step 2 is best-effort but a failure
+// is surfaced to the caller in `persist_error` so the UI can warn the
+// operator the change isn't durable.
+func (s *Server) handleTenantContainerToggle(w http.ResponseWriter, r *http.Request, slug, name, who string) {
 	if r.Method != http.MethodPost {
 		apiErr(w, http.StatusMethodNotAllowed, "POST only")
 		return
@@ -122,11 +137,60 @@ func (s *Server) handleTenantContainerToggle(w http.ResponseWriter, r *http.Requ
 		apiErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	apiJSON(w, map[string]any{
+
+	// Persist the new state via the playbook. The playbook commits +
+	// pushes disabled_containers.yml and re-applies on the host (the
+	// SSH stop/start above already happened, so the host action is
+	// effectively a no-op, but it confirms the persisted YAML wins).
+	resp := map[string]any{
 		"slug":    slug,
 		"name":    name,
 		"started": body.Start,
 		"output":  strings.TrimSpace(string(out)),
+	}
+	state := "off"
+	if body.Start {
+		state = "on"
+	}
+	if action, ok := s.cat.ByID("tenant-container-toggle"); ok {
+		args := map[string]string{
+			"tenant":         slug,
+			"container_name": name,
+			"state":          state,
+		}
+		taskID, err := s.runner.Enqueue(r.Context(), action, args, who)
+		if err != nil {
+			resp["persist_error"] = err.Error()
+		} else {
+			resp["persist_task_id"] = taskID
+			resp["persist_url"] = fmt.Sprintf("/tasks/%d", taskID)
+		}
+	} else {
+		resp["persist_error"] = "tenant-container-toggle action not in catalog (pull repo?)"
+	}
+	apiJSON(w, resp)
+}
+
+// handleTenantContainersDisabledList returns the persisted-off list
+// (committed to host_vars/<slug>/disabled_containers.yml). The UI uses
+// this to dim/badge rows whose state will be re-asserted by the next
+// apply, distinguishing "stopped now" from "stopped persistently".
+func (s *Server) handleTenantContainersDisabledList(w http.ResponseWriter, r *http.Request, slug string) {
+	if r.Method != http.MethodGet {
+		apiErr(w, http.StatusMethodNotAllowed, "GET only")
+		return
+	}
+	list, err := ReadDisabledContainers(s.cfg.RepoPath, s.cfg.Env, slug)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if list == nil {
+		list = []string{}
+	}
+	apiJSON(w, map[string]any{
+		"slug":     slug,
+		"disabled": list,
 	})
 }
 

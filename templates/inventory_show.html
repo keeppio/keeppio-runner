@@ -100,35 +100,59 @@
   async function loadContainers() {
     status.textContent = 'loading…';
     try {
-      const r = await fetch(`/ui/tenants/${encodeURIComponent(slug)}/containers`, {
-        headers: { 'Accept': 'application/json' },
-      });
-      if (!r.ok) {
-        const t = await r.text();
-        throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+      // Fetch live `docker ps` AND the persisted-disabled list in
+      // parallel; merge so the UI can distinguish "off (live only)" from
+      // "off (persisted)" — the latter survives the next apply.
+      const [psResp, disabledResp] = await Promise.all([
+        fetch(`/ui/tenants/${encodeURIComponent(slug)}/containers`,          { headers: { 'Accept': 'application/json' } }),
+        fetch(`/ui/tenants/${encodeURIComponent(slug)}/containers/disabled`, { headers: { 'Accept': 'application/json' } }),
+      ]);
+      if (!psResp.ok) {
+        const t = await psResp.text();
+        throw new Error(`HTTP ${psResp.status}: ${t.slice(0, 200)}`);
       }
-      const data = await r.json();
+      const data = await psResp.json();
       const list = data.containers || [];
+      // Disabled list is best-effort: if the file's missing or the
+      // request fails, we just don't badge anything.
+      let disabledSet = new Set();
+      if (disabledResp.ok) {
+        const d = await disabledResp.json();
+        (d.disabled || []).forEach(n => disabledSet.add(n));
+      }
       if (list.length === 0) {
         tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 italic">No containers found for keeppio-${escapeHtml(slug)}-*</td></tr>`;
       } else {
-        tbody.innerHTML = list.map(c => `
-          <tr class="border-t" data-name="${escapeHtml(c.name)}">
-            <td class="px-3 py-2 font-mono">${escapeHtml(c.name)}</td>
+        tbody.innerHTML = list.map(c => {
+          const persistedOff = disabledSet.has(c.name);
+          // Visual: persisted-off rows are dimmed + italic + carry an
+          // explicit badge so an operator skimming the table knows the
+          // state will be re-asserted by the next apply.
+          const rowCls = persistedOff ? 'border-t opacity-60 italic' : 'border-t';
+          const persistedBadge = persistedOff
+            ? `<span class="ml-2 text-[10px] uppercase tracking-wide bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded not-italic">off (persisted)</span>`
+            : '';
+          return `
+          <tr class="${rowCls}" data-name="${escapeHtml(c.name)}">
+            <td class="px-3 py-2 font-mono">${escapeHtml(c.name)}${persistedBadge}</td>
             <td class="px-3 py-2 font-mono text-zinc-600 break-all">${escapeHtml(c.image)}</td>
             <td class="px-3 py-2">
               <span class="text-xs px-2 py-0.5 rounded ${c.running ? 'bg-green-100 text-green-800' : 'bg-zinc-100 text-zinc-700'}">${escapeHtml(c.state)}</span>
             </td>
             <td class="px-3 py-2 text-zinc-600">${escapeHtml(c.status)}</td>
             <td class="px-3 py-2 text-right">
-              <label class="inline-flex items-center cursor-pointer select-none gap-2" title="${c.running ? 'Stop container' : 'Start container'}">
+              <label class="inline-flex items-center cursor-pointer select-none gap-2" title="${c.running ? 'Stop container (persists)' : 'Start container (persists)'}">
                 <span class="text-xs text-zinc-500">${c.running ? 'ON' : 'OFF'}</span>
                 <input type="checkbox" class="container-toggle" data-name="${escapeHtml(c.name)}" ${c.running ? 'checked' : ''} aria-label="Toggle ${escapeHtml(c.name)}">
               </label>
             </td>
-          </tr>`).join('');
+          </tr>`;
+        }).join('');
       }
-      status.textContent = `${list.length} container(s)`;
+      const offCount = disabledSet.size;
+      status.textContent = offCount > 0
+        ? `${list.length} container(s) — ${offCount} persisted off`
+        : `${list.length} container(s)`;
     } catch (e) {
       status.textContent = '';
       tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-4 text-center text-red-600">Error: ${escapeHtml(e.message || e)}</td></tr>`;

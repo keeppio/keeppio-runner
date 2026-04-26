@@ -223,3 +223,32 @@ func IsDomainDisabled(repo, env, slug, fqdn string) bool {
 	}
 	return false
 }
+
+// ──────────────────────────────────────────────────────────────────────
+// Per-container disabled state
+// ──────────────────────────────────────────────────────────────────────
+
+// ReadDisabledContainers returns the list of container names currently
+// marked as disabled for a tenant. Source of truth is the committed
+// file `inventories/<env>/host_vars/<slug>/disabled_containers.yml`.
+// Missing file ⇒ empty slice (no error). The file is rewritten by
+// the tenant-container-toggle playbook on every change; the apps role
+// re-applies it on every provision/deploy so the state survives
+// `compose up -d` recreations.
+func ReadDisabledContainers(repo, env, slug string) ([]string, error) {
+	path := filepath.Join(repo, "inventories", env, "host_vars", slug, "disabled_containers.yml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var doc struct {
+		DisabledContainers []string `yaml:"disabled_containers"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	return doc.DisabledContainers, nil
+}
