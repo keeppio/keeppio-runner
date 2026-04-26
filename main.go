@@ -74,6 +74,9 @@ func main() {
 	if err := loadActions(cfg.RepoPath, cat); err != nil {
 		log.Fatalf("load actions.yml: %v", err)
 	}
+	runner := internal.NewRunner(cfg, db, cat)
+	runner.Start(ctx)
+
 	// Refresh the repo + actions every 5 min. Each task run already
 	// fetches+resets, so the periodic loop only catches *out-of-band*
 	// pushes (e.g. someone editing actions.yml directly via git). 30 s
@@ -116,9 +119,6 @@ func main() {
 			}
 		}
 	}()
-
-	runner := internal.NewRunner(cfg, db, cat)
-	runner.Start(ctx)
 
 	server, err := internal.NewServer(cfg, db, cat, runner, tplFS, staticFS)
 	if err != nil {
