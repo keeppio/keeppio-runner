@@ -283,11 +283,14 @@ func ReadInventoryTree(repo, env string) (map[string]HostGroup, error) {
 		sort.Slice(hosts, func(i, j int) bool { return hosts[i].Name < hosts[j].Name })
 		out[groupName] = hosts
 	}
-	// Second pass: populate OnServer by finding a co-resident host.
-	// Preference order is intentional — a tenant on a registered
-	// server's IP shows that server's name; an ops box on a unique IP
-	// shows nothing.
-	preference := []string{"servers", "ops", "clients"}
+	// Second pass: populate OnServer by finding a co-resident host
+	// in the `servers` or `ops` groups only. Falling back to `clients`
+	// would surface another *tenant's* name on a tenant card (e.g.
+	// `root@e2e-50` on demo's card when both share the same VPS),
+	// which is misleading — they're peers, not hosts. When no
+	// server/ops entry shares the IP, leave OnServer empty so the
+	// template shows the bare IP instead.
+	preference := []string{"servers", "ops"}
 	for groupName, g := range out {
 		for i, h := range g {
 			for _, pref := range preference {
