@@ -25,7 +25,10 @@
       </div>
       {{ if .PrimaryFqdn }}<div class="text-sm text-blue-600 truncate mt-0.5">{{ .PrimaryFqdn }}</div>{{ end }}
       <div class="text-xs text-zinc-500 mt-1 font-mono truncate">
-        {{ .User }}@{{ if .OnServer }}{{ .OnServer }}{{ else }}{{ .Host }}{{ end }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}
+        {{- /* Servers always show the raw IP — they ARE the host, so
+             collapsing to a co-resident tenant's name is misleading.
+             Tenants + ops keep the OnServer resolution. */ -}}
+        {{ .User }}@{{ if and (ne $group "servers") .OnServer }}{{ .OnServer }}{{ else }}{{ .Host }}{{ end }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}
       </div>
     </a>
     {{ end }}
