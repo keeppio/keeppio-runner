@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -50,7 +51,18 @@ type Runner struct {
 	cancel  sync.Map         // taskID → chan struct{} (cancellation)
 	subsMu  sync.RWMutex
 	subs    map[int64][]chan LogEvent
+	// active is non-zero while a task is running its ansible-playbook
+	// subprocess. The periodic git-pull ticker checks this and skips
+	// the pull when work is in flight — otherwise reset --hard would
+	// race with task subprocesses that are mid-commit/push and clobber
+	// the working tree.
+	active  atomic.Int32
 }
+
+// Busy reports true while a task subprocess is actively running.
+// Used by main.go's periodic ticker to avoid `git reset --hard`-ing
+// the repo while a task has uncommitted or in-flight changes.
+func (r *Runner) Busy() bool { return r.active.Load() > 0 }
 
 func NewRunner(cfg *Config, db *sql.DB, cat *Catalog) *Runner {
 	return &Runner{
@@ -192,6 +204,12 @@ func (r *Runner) broadcast(taskID int64, ev LogEvent) {
 // ──────────────────────────────────────────────────────────────────────
 
 func (r *Runner) run(ctx context.Context, taskID int64) {
+	// Mark Busy so the periodic git-pull ticker skips while we're
+	// running. Otherwise reset --hard races subprocess pushes and
+	// clobbers committed-but-not-yet-visible state.
+	r.active.Add(1)
+	defer r.active.Add(-1)
+
 	// Cancellation signal for THIS task. Cleared on exit.
 	cancelCh := make(chan struct{}, 1)
 	r.cancel.Store(taskID, cancelCh)

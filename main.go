@@ -86,6 +86,13 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				// Skip the pull while a task is running — its
+				// subprocesses do their own commits + pushes, and a
+				// reset --hard mid-task can clobber state in flight.
+				if runner.Busy() {
+					log.Printf("periodic git pull: skipping; task in flight")
+					continue
+				}
 				if err := pullRepo(cfg); err != nil {
 					log.Printf("periodic git pull: %v", err)
 				}
