@@ -1,0 +1,25 @@
+{{ define "settings.html" }}{{ template "header" . }}
+<h1 class="text-xl font-semibold mb-4">Settings</h1>
+
+<div class="bg-white border rounded-lg p-5 mb-6 text-sm">
+  <h2 class="font-medium mb-2">Repository</h2>
+  <div class="text-zinc-600">Latest pulled commit: <span class="font-mono">{{ if .Commit }}{{ slice .Commit 0 7 }}{{ else }}—{{ end }}</span></div>
+  <div class="text-zinc-500 text-xs mt-1">Each task fetches + hard-resets to <code>origin/main</code> before running.</div>
+</div>
+
+<div class="bg-white border rounded-lg p-5">
+  <h2 class="font-medium mb-2">Change admin password</h2>
+  {{ if .Error }}<div class="text-red-600 text-sm mb-2">{{ .Error }}</div>{{ end }}
+  <form action="/settings.submit" method="post" class="space-y-3">
+    <div>
+      <label class="block text-sm font-medium mb-1" for="new_password">New password</label>
+      <input type="password" id="new_password" name="new_password" class="w-full border rounded px-2 py-1" required>
+    </div>
+    <div>
+      <label class="block text-sm font-medium mb-1" for="confirm_password">Confirm</label>
+      <input type="password" id="confirm_password" name="confirm_password" class="w-full border rounded px-2 py-1" required>
+    </div>
+    <button class="bg-zinc-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-zinc-800">Update</button>
+  </form>
+</div>
+{{ template "footer" . }}{{ end }}

@@ -1,0 +1,42 @@
+{{ define "run.html" }}{{ template "header" . }}
+<div class="mb-4">
+  <a href="/" class="text-sm text-zinc-500 hover:underline">← back</a>
+</div>
+
+<h1 class="text-xl font-semibold">{{ .Action.Label }}</h1>
+{{ if .Action.Description }}<p class="text-zinc-600 mt-1">{{ .Action.Description }}</p>{{ end }}
+
+{{ if .Error }}
+<div class="mt-4 border border-red-300 bg-red-50 text-red-800 rounded p-3 text-sm">{{ .Error }}</div>
+{{ end }}
+
+<form method="post" action="/run/{{ .Action.ID }}.submit" class="mt-6 space-y-4 bg-white border rounded-lg p-5">
+  {{ range .Fields }}
+  <div>
+    <label class="block text-sm font-medium" for="{{ .Name }}">{{ .Label }}{{ if .Required }} <span class="text-red-500">*</span>{{ end }}</label>
+    {{ if .Description }}<div class="text-xs text-zinc-500 mb-1">{{ .Description }}</div>{{ end }}
+    {{ if eq .Type "enum" }}
+      {{ if .Error }}
+        <div class="text-sm text-red-600">{{ .Error }}</div>
+      {{ else if .Options }}
+        <select name="{{ .Name }}" id="{{ .Name }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
+          {{ if not .Required }}<option value="">— none —</option>{{ end }}
+          {{ $val := .Value }}
+          {{ range .Options }}<option value="{{ . }}" {{ if eq . $val }}selected{{ end }}>{{ . }}</option>{{ end }}
+        </select>
+      {{ else }}
+        <div class="text-sm text-zinc-500">no options available</div>
+      {{ end }}
+    {{ else if eq .Type "secret" }}
+      <input type="password" name="{{ .Name }}" id="{{ .Name }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
+    {{ else }}
+      <input type="text" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Default }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
+    {{ end }}
+  </div>
+  {{ end }}
+  <div class="pt-2 flex items-center gap-2">
+    <button class="bg-zinc-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-zinc-800">Run</button>
+    <a href="/" class="text-sm text-zinc-500 hover:underline">Cancel</a>
+  </div>
+</form>
+{{ template "footer" . }}{{ end }}

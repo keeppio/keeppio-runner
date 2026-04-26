@@ -1,0 +1,40 @@
+{{ define "header" }}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ .Env }} · keeppio-runner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; }
+    pre.log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+  </style>
+</head>
+<body class="bg-zinc-50 text-zinc-900 min-h-screen">
+  <header class="border-b bg-white">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <a href="/" class="font-semibold">keeppio-runner</a>
+        <span class="text-xs px-2 py-0.5 rounded {{ if eq .Env "production" }}bg-red-100 text-red-800{{ else }}bg-zinc-100 text-zinc-700{{ end }}">{{ .Env }}</span>
+      </div>
+      <nav class="flex items-center gap-4 text-sm">
+        <a href="/" class="hover:underline">Dashboard</a>
+        <a href="/tasks" class="hover:underline">Tasks</a>
+        <a href="/inventory" class="hover:underline">Inventory</a>
+        <a href="/settings" class="hover:underline">Settings</a>
+        <form action="/logout" method="post" class="inline">
+          <button class="text-zinc-500 hover:text-zinc-900">Sign out</button>
+        </form>
+      </nav>
+    </div>
+  </header>
+  <main class="max-w-5xl mx-auto px-4 py-6">
+{{ end }}
+
+{{ define "footer" }}
+  </main>
+</body>
+</html>
+{{ end }}

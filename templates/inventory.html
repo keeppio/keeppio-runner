@@ -1,0 +1,5 @@
+{{ define "inventory.html" }}{{ template "header" . }}
+<h1 class="text-xl font-semibold mb-2">Inventory ({{ .Env }})</h1>
+<p class="text-sm text-zinc-500 mb-4">Read-only view of <code>inventories/{{ .Env }}/hosts.yml</code> from the cloned repo. Edit via git in keeppio-infrastructure; the runner re-reads on every action run.</p>
+<pre class="bg-white border rounded-lg p-4 text-sm font-mono overflow-x-auto whitespace-pre-wrap">{{ .HostsBody }}</pre>
+{{ template "footer" . }}{{ end }}

@@ -1,0 +1,23 @@
+{{ define "login.html" }}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign in · keeppio-runner ({{ .Env }})</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-50 min-h-screen flex items-center justify-center">
+  <form action="/login.submit" method="post" class="bg-white border rounded-lg p-6 w-80 shadow-sm">
+    <h1 class="text-lg font-semibold mb-1">keeppio-runner</h1>
+    <p class="text-sm text-zinc-500 mb-4">{{ .Env }}</p>
+    {{ if .Error }}<div class="text-red-600 text-sm mb-3">{{ .Error }}</div>{{ end }}
+    <label class="block text-sm font-medium mb-1" for="username">Username</label>
+    <input id="username" name="username" value="admin" class="w-full border rounded px-2 py-1 mb-3" autofocus>
+    <label class="block text-sm font-medium mb-1" for="password">Password</label>
+    <input id="password" name="password" type="password" class="w-full border rounded px-2 py-1 mb-4">
+    <button class="w-full bg-zinc-900 text-white rounded py-2 text-sm font-medium hover:bg-zinc-800">Sign in</button>
+  </form>
+</body>
+</html>
+{{ end }}

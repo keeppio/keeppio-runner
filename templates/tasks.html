@@ -1,0 +1,31 @@
+{{ define "tasks.html" }}{{ template "header" . }}
+<h1 class="text-xl font-semibold mb-4">Recent tasks</h1>
+{{ if .Tasks }}
+<div class="bg-white border rounded-lg overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-zinc-50 text-zinc-500 text-left">
+      <tr>
+        <th class="px-3 py-2 font-medium">#</th>
+        <th class="px-3 py-2 font-medium">Action</th>
+        <th class="px-3 py-2 font-medium">Status</th>
+        <th class="px-3 py-2 font-medium">When</th>
+        <th class="px-3 py-2 font-medium">By</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Tasks }}
+      <tr class="border-t hover:bg-zinc-50">
+        <td class="px-3 py-2 font-mono"><a href="/tasks/{{ .ID }}" class="text-blue-600 hover:underline">{{ .ID }}</a></td>
+        <td class="px-3 py-2">{{ .ActionLabel }}</td>
+        <td class="px-3 py-2"><span class="text-xs px-2 py-0.5 rounded {{ statusBadge .Status }}">{{ .Status }}{{ if .ExitCode }} (exit {{ .ExitCode }}){{ end }}</span></td>
+        <td class="px-3 py-2 text-zinc-500">{{ timeAgo .CreatedAt }}</td>
+        <td class="px-3 py-2 text-zinc-500">{{ .Username }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+{{ else }}
+<p class="text-zinc-500">No tasks yet. Pick an action from the dashboard to run one.</p>
+{{ end }}
+{{ template "footer" . }}{{ end }}

@@ -1,0 +1,55 @@
+{{ define "task.html" }}{{ template "header" . }}
+<div class="mb-4">
+  <a href="/tasks" class="text-sm text-zinc-500 hover:underline">← all tasks</a>
+</div>
+
+<div class="flex items-baseline justify-between mb-4">
+  <h1 class="text-xl font-semibold">#{{ .Task.ID }} · {{ .Task.ActionLabel }}</h1>
+  <span id="status-badge" class="text-xs px-2 py-0.5 rounded {{ statusBadge .Task.Status }}">{{ .Task.Status }}{{ if .Task.ExitCode }} (exit {{ .Task.ExitCode }}){{ end }}</span>
+</div>
+
+<div class="grid grid-cols-2 gap-4 text-sm bg-white border rounded p-4 mb-4">
+  <div><span class="text-zinc-500">Started:</span> {{ if .Task.StartedAt }}{{ timeAgo .Task.StartedAt }}{{ else }}—{{ end }}</div>
+  <div><span class="text-zinc-500">Ended:</span> {{ if .Task.EndedAt }}{{ timeAgo .Task.EndedAt }}{{ else }}—{{ end }}</div>
+  <div><span class="text-zinc-500">By:</span> {{ .Task.Username }}</div>
+  <div><span class="text-zinc-500">Commit:</span> <span class="font-mono">{{ if .Task.CommitHash }}{{ slice .Task.CommitHash 0 7 }}{{ else }}—{{ end }}</span></div>
+  <div class="col-span-2"><span class="text-zinc-500">Args:</span>
+    <pre class="text-xs bg-zinc-50 border rounded p-2 mt-1 overflow-x-auto">{{ jsonPretty .Task.ArgsJSON }}</pre>
+  </div>
+</div>
+
+{{ if .Live }}
+<form action="/tasks/cancel/{{ .Task.ID }}" method="post" class="mb-3">
+  <button class="text-xs px-3 py-1 border rounded hover:bg-red-50 hover:border-red-300">Cancel</button>
+</form>
+{{ end }}
+
+<pre id="log" class="log bg-zinc-900 text-zinc-100 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap">{{ .LogBody }}</pre>
+
+{{ if .Live }}
+<script>
+(function() {
+  const log = document.getElementById('log');
+  const badge = document.getElementById('status-badge');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(proto + '//' + location.host + '/ws/tasks/{{ .Task.ID }}');
+  ws.onmessage = function(ev) {
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.line) {
+      log.appendChild(document.createTextNode(m.line + '\n'));
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+    if (m.status && m.status !== 'running') {
+      badge.textContent = m.status;
+      badge.className = 'text-xs px-2 py-0.5 rounded ' + (
+        m.status === 'success' ? 'bg-green-100 text-green-800' :
+        m.status === 'closed' ? 'bg-zinc-100 text-zinc-800' :
+        'bg-red-100 text-red-800');
+      if (m.status !== 'closed') ws.close();
+    }
+  };
+})();
+</script>
+{{ end }}
+{{ template "footer" . }}{{ end }}
