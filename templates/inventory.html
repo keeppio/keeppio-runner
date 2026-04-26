@@ -24,7 +24,9 @@
         <span class="text-[10px] uppercase tracking-wide text-zinc-400">{{ $group }}</span>
       </div>
       {{ if .PrimaryFqdn }}<div class="text-sm text-blue-600 truncate mt-0.5">{{ .PrimaryFqdn }}</div>{{ end }}
-      <div class="text-xs text-zinc-500 mt-1 font-mono truncate">{{ .User }}@{{ .Host }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}</div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono truncate">
+        {{ .User }}@{{ if .OnServer }}{{ .OnServer }}{{ else }}{{ .Host }}{{ end }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}
+      </div>
     </a>
     {{ end }}
   </div>

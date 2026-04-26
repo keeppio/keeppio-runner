@@ -8,10 +8,11 @@
   <span class="text-xs uppercase tracking-wide bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded">{{ .Group }}</span>
 </div>
 
-<div class="grid grid-cols-3 gap-4 bg-white border rounded-lg p-4 mb-6 text-sm">
-  <div><span class="text-zinc-500">Host:</span> <span class="font-mono">{{ .Host.Host }}</span></div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white border rounded-lg p-4 mb-6 text-sm">
+  <div><span class="text-zinc-500">IP:</span> <span class="font-mono">{{ .Host.Host }}</span></div>
   <div><span class="text-zinc-500">User:</span> <span class="font-mono">{{ .Host.User }}</span></div>
   <div><span class="text-zinc-500">SSH port:</span> <span class="font-mono">{{ .Host.Port }}</span></div>
+  {{ if .Host.OnServer }}<div><span class="text-zinc-500">On server:</span> <span class="font-mono">{{ .Host.OnServer }}</span></div>{{ end }}
 </div>
 
 {{ if .Host.AllFqdns }}

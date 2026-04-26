@@ -199,6 +199,11 @@ type HostEntry struct {
 	// AllFqdns is the complete list (ordered: webapp, api, bridge,
 	// paynl, reverb). Used by the drill-down page.
 	AllFqdns []FqdnEntry
+	// OnServer is the name of another inventory host (preferring
+	// `servers` group, then `ops`, then `clients`) that lives on the
+	// same IP. Lets the inventory cards show "user@<server-name>"
+	// instead of the bare IP. Empty when no co-resident is found.
+	OnServer string
 	// Raw is whatever the YAML had under the hosts.yml entry — kept
 	// for future use.
 	Raw map[string]any
@@ -278,7 +283,31 @@ func ReadInventoryTree(repo, env string) (map[string]HostGroup, error) {
 		sort.Slice(hosts, func(i, j int) bool { return hosts[i].Name < hosts[j].Name })
 		out[groupName] = hosts
 	}
+	// Second pass: populate OnServer by finding a co-resident host.
+	// Preference order is intentional — a tenant on a registered
+	// server's IP shows that server's name; an ops box on a unique IP
+	// shows nothing.
+	preference := []string{"servers", "ops", "clients"}
+	for groupName, g := range out {
+		for i, h := range g {
+			for _, pref := range preference {
+				if found := pickColocated(out, pref, h, groupName, h.Name); found != "" {
+					out[groupName][i].OnServer = found
+					break
+				}
+			}
+		}
+	}
 	return out, nil
+}
+
+func pickColocated(tree map[string]HostGroup, group string, h HostEntry, selfGroup, selfName string) string {
+	for _, c := range tree[group] {
+		if c.Host == h.Host && !(group == selfGroup && c.Name == selfName) {
+			return c.Name
+		}
+	}
+	return ""
 }
 
 // readHostFqdns pulls FQDN-like fields out of host_vars/<name>/vars.yml.
