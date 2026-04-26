@@ -255,10 +255,15 @@ func (r *Runner) run(ctx context.Context, taskID int64) {
 	_, _ = r.db.ExecContext(ctx, `UPDATE tasks SET commit_hash=? WHERE id=?`, commitHash, taskID)
 
 	// Step 2: ansible-playbook.
+	// Inject runner_task_id as an extra-var so playbooks (e.g. e2e-full)
+	// can derive unique scratch resource names per run — eliminates the
+	// "leftover state from a previous failed run blocks the next run"
+	// class of problems.
 	args := []string{
 		"-i", filepath.Join("inventories", r.cfg.Env, "hosts.yml"),
 		"--vault-id", r.cfg.VaultLabel + "@" + r.cfg.VaultPasswordFile,
 		"-e", "env=" + r.cfg.Env,
+		"-e", fmt.Sprintf("runner_task_id=%d", taskID),
 	}
 	for k, v := range realArgs {
 		args = append(args, "-e", k+"="+v)
