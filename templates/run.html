@@ -37,6 +37,8 @@
       {{ end }}
     {{ else if eq .Type "secret" }}
       <input type="password" name="{{ .Name }}" id="{{ .Name }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
+    {{ else if eq .Type "datetime" }}
+      <input type="datetime-local" step="1" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
     {{ else }}
       <input type="text" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Default }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
     {{ end }}
