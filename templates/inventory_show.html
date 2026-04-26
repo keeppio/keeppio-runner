@@ -82,7 +82,11 @@
 
 <script>
 (function() {
-  const slug = {{ .Host.Name | printf "%q" }};
+  // html/template's JS context escaper produces a safe string literal
+  // when the value is dropped in unquoted. `printf "%q"` adds Go quotes
+  // first which the escaper then double-encodes — slug ends up as the
+  // 6-char string `"demo"` (with literal quotes) and the API rejects it.
+  const slug = {{ .Host.Name }};
   const tbody = document.getElementById('containers-tbody');
   const status = document.getElementById('containers-status');
   const refresh = document.getElementById('containers-refresh');
