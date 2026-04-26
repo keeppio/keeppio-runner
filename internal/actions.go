@@ -20,16 +20,27 @@ import (
 // Action is one button on the dashboard. Maps 1:1 to a playbook in
 // keeppio-infrastructure. Loaded from `actions.yml` at the repo root.
 type Action struct {
-	ID          string  `yaml:"id"`
-	Label       string  `yaml:"label"`
-	Description string  `yaml:"description"`
-	Group       string  `yaml:"group"` // dashboard category
-	Playbook    string  `yaml:"playbook"`
+	ID          string   `yaml:"id"`
+	Label       string   `yaml:"label"`
+	Description string   `yaml:"description"`
+	Group       string   `yaml:"group"` // dashboard category
+	Playbook    string   `yaml:"playbook"`
 	ExtraArgs   []string `yaml:"extra_args"` // appended raw to ansible-playbook
-	Fields      []Field `yaml:"fields"`
+	Fields      []Field  `yaml:"fields"`
 	// Severity hints the UI to colour the button (and ask for an extra
 	// confirm step). "danger" for things like Decommission tenant.
 	Severity string `yaml:"severity"`
+	// AppliesTo declares which inventory resource(s) the action acts
+	// on, plus the form field that should be pre-populated when the
+	// user reaches the action from a resource detail page. An action
+	// can apply to multiple groups (e.g. tenant-move acts on both a
+	// tenant and a target server).
+	AppliesTo []Applies `yaml:"applies_to"`
+}
+
+type Applies struct {
+	Group string `yaml:"group"` // inventory group name (clients|servers)
+	Field string `yaml:"field"` // form field to pre-fill with the host name
 }
 
 type Field struct {
@@ -154,6 +165,63 @@ func ResolveOptions(ctx context.Context, cfg *Config, f Field) ([]string, error)
 }
 
 func readInventoryGroup(repo, env, group string) ([]string, error) {
+	tree, err := ReadInventoryTree(repo, env)
+	if err != nil {
+		return nil, err
+	}
+	if hosts, ok := tree[group]; ok {
+		return hosts.Names(), nil
+	}
+	return []string{}, nil
+}
+
+// HostEntry is one entry under a `hosts:` key in hosts.yml. We keep
+// only the connection-relevant fields — anything else (host_vars
+// content, etc.) lives elsewhere in the repo.
+type HostEntry struct {
+	Name     string
+	Host     string
+	Port     int
+	User     string
+	// Raw is whatever the YAML had under this host, useful for the
+	// inventory detail page if we want to dump everything later.
+	Raw map[string]any
+}
+
+// HostGroup is one of clients/servers/ops/... A wrapper around a list
+// of HostEntry with stable ordering.
+type HostGroup []HostEntry
+
+func (g HostGroup) Names() []string {
+	out := make([]string, 0, len(g))
+	for _, h := range g {
+		out = append(out, h.Name)
+	}
+	return out
+}
+
+// ReadDeployPubkey reads the env's deploy SSH public key from
+// inventories/<env>/group_vars/all/vars.yml. Returns "" if missing.
+// Plain (non-vault) YAML — no decryption needed.
+func ReadDeployPubkey(repo, env string) string {
+	path := filepath.Join(repo, "inventories", env, "group_vars", "all", "vars.yml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return ""
+	}
+	if v, ok := doc["deploy_ssh_public_key"].(string); ok {
+		return v
+	}
+	return ""
+}
+
+// ReadInventoryTree returns every group in the env's hosts.yml. Used
+// by the inventory page (browse) and by the per-field source resolver.
+func ReadInventoryTree(repo, env string) (map[string]HostGroup, error) {
 	path := filepath.Join(repo, "inventories", env, "hosts.yml")
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -162,22 +230,32 @@ func readInventoryGroup(repo, env, group string) ([]string, error) {
 	var doc struct {
 		All struct {
 			Children map[string]struct {
-				Hosts map[string]any `yaml:"hosts"`
+				Hosts map[string]map[string]any `yaml:"hosts"`
 			} `yaml:"children"`
 		} `yaml:"all"`
 	}
 	if err := yaml.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	g, ok := doc.All.Children[group]
-	if !ok {
-		return []string{}, nil
+	out := map[string]HostGroup{}
+	for groupName, g := range doc.All.Children {
+		hosts := make(HostGroup, 0, len(g.Hosts))
+		for name, raw := range g.Hosts {
+			h := HostEntry{Name: name, Raw: raw, Port: 22, User: "root"}
+			if v, ok := raw["ansible_host"].(string); ok {
+				h.Host = v
+			}
+			if v, ok := raw["ansible_user"].(string); ok {
+				h.User = v
+			}
+			if v, ok := raw["ansible_port"].(int); ok {
+				h.Port = v
+			}
+			hosts = append(hosts, h)
+		}
+		sort.Slice(hosts, func(i, j int) bool { return hosts[i].Name < hosts[j].Name })
+		out[groupName] = hosts
 	}
-	out := make([]string, 0, len(g.Hosts))
-	for k := range g.Hosts {
-		out = append(out, k)
-	}
-	sort.Strings(out)
 	return out, nil
 }
 

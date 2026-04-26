@@ -10,6 +10,14 @@
 <div class="mt-4 border border-red-300 bg-red-50 text-red-800 rounded p-3 text-sm">{{ .Error }}</div>
 {{ end }}
 
+{{ if .DeployPubkey }}
+<div class="mt-4 border border-amber-300 bg-amber-50 rounded-lg p-4">
+  <h2 class="text-sm font-semibold text-amber-900 mb-1">Deploy this SSH public key on the new server first</h2>
+  <p class="text-xs text-amber-900/80 mb-2">Append the line below to <code class="bg-white/60 px-1 rounded">~/.ssh/authorized_keys</code> for the SSH user you'll register here. Without it the runner can't connect during onboarding.</p>
+  <pre class="text-xs bg-white border border-amber-200 rounded p-2 font-mono whitespace-pre-wrap break-all select-all">{{ .DeployPubkey }}</pre>
+</div>
+{{ end }}
+
 <form method="post" action="/run/{{ .Action.ID }}.submit" class="mt-6 space-y-4 bg-white border rounded-lg p-5">
   {{ range .Fields }}
   <div>

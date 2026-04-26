@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -63,11 +64,17 @@ func main() {
 	}
 
 	cat := &internal.Catalog{}
+	// First sync — also picks up any commits that landed since clone.
+	if err := pullRepo(cfg); err != nil {
+		log.Printf("initial git pull: %v", err)
+	}
 	if err := loadActions(cfg.RepoPath, cat); err != nil {
 		log.Fatalf("load actions.yml: %v", err)
 	}
-	// Reload actions every 30s so a fresh `git pull` from a task
-	// run also updates the dashboard without restarting.
+	// Refresh the repo + actions every 30s. Each task run also
+	// fetches+resets, but the periodic loop is what keeps dropdowns
+	// (read from inventory at form-render time) and the dashboard's
+	// action list current between runs.
 	go func() {
 		t := time.NewTicker(30 * time.Second)
 		defer t.Stop()
@@ -76,6 +83,9 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				if err := pullRepo(cfg); err != nil {
+					log.Printf("periodic git pull: %v", err)
+				}
 				if err := loadActions(cfg.RepoPath, cat); err != nil {
 					log.Printf("reload actions.yml: %v", err)
 				}
@@ -141,4 +151,17 @@ func exec(name string, args ...string) (string, error) {
 	cmd := osexec.Command(name, args...)
 	b, err := cmd.CombinedOutput()
 	return string(b), err
+}
+
+// pullRepo fetches + hard-resets the cloned repo to origin/<branch>.
+// Same shape the task runner does per-task, lifted out so the boot
+// path and the periodic refresher share a code path.
+func pullRepo(cfg *internal.Config) error {
+	if out, err := exec("git", "-C", cfg.RepoPath, "fetch", "--quiet", "origin", cfg.RepoBranch); err != nil {
+		return fmt.Errorf("git fetch: %w: %s", err, out)
+	}
+	if out, err := exec("git", "-C", cfg.RepoPath, "reset", "--hard", "origin/"+cfg.RepoBranch); err != nil {
+		return fmt.Errorf("git reset: %w: %s", err, out)
+	}
+	return nil
 }

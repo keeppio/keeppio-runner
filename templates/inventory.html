@@ -1,5 +1,30 @@
 {{ define "inventory.html" }}{{ template "header" . }}
-<h1 class="text-xl font-semibold mb-2">Inventory ({{ .Env }})</h1>
-<p class="text-sm text-zinc-500 mb-4">Read-only view of <code>inventories/{{ .Env }}/hosts.yml</code> from the cloned repo. Edit via git in keeppio-infrastructure; the runner re-reads on every action run.</p>
-<pre class="bg-white border rounded-lg p-4 text-sm font-mono overflow-x-auto whitespace-pre-wrap">{{ .HostsBody }}</pre>
+<h1 class="text-xl font-semibold mb-1">Inventory</h1>
+<p class="text-sm text-zinc-500 mb-6">Click any host to see actions you can run against it. Edits live in <code class="bg-zinc-100 px-1 rounded">keeppio-infrastructure</code>; the runner re-reads every 30s + before each task.</p>
+
+{{ range .Groups }}
+{{ $group := .Group }}
+<section class="mb-8">
+  <header class="flex items-baseline justify-between mb-1">
+    <h2 class="text-sm uppercase tracking-wide text-zinc-500">{{ .Icon }} {{ .Title }} <span class="text-zinc-400">·</span> <span class="font-mono text-zinc-400">{{ $group }}</span></h2>
+    <span class="text-xs text-zinc-400">{{ len .Hosts }} {{ if eq (len .Hosts) 1 }}host{{ else }}hosts{{ end }}</span>
+  </header>
+  <p class="text-xs text-zinc-500 mb-3">{{ .Hint }}</p>
+  {{ if .Hosts }}
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+    {{ range .Hosts }}
+    <a href="/inventory/{{ $group }}/{{ .Name }}" class="block bg-white border rounded-lg p-4 hover:bg-zinc-50 transition">
+      <div class="flex items-start justify-between gap-2">
+        <div class="font-medium truncate">{{ .Name }}</div>
+        <span class="text-[10px] uppercase tracking-wide text-zinc-400">{{ $group }}</span>
+      </div>
+      <div class="text-xs text-zinc-500 mt-1 font-mono truncate">{{ .User }}@{{ .Host }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}</div>
+    </a>
+    {{ end }}
+  </div>
+  {{ else }}
+  <p class="text-sm text-zinc-400 italic">none registered</p>
+  {{ end }}
+</section>
+{{ end }}
 {{ template "footer" . }}{{ end }}

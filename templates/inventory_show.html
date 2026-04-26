@@ -1,0 +1,30 @@
+{{ define "inventory_show.html" }}{{ template "header" . }}
+<div class="mb-4">
+  <a href="/inventory" class="text-sm text-zinc-500 hover:underline">← all inventory</a>
+</div>
+
+<div class="flex items-baseline gap-3 mb-2">
+  <h1 class="text-2xl font-semibold">{{ .Host.Name }}</h1>
+  <span class="text-xs uppercase tracking-wide bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded">{{ .Group }}</span>
+</div>
+
+<div class="grid grid-cols-2 gap-4 bg-white border rounded-lg p-4 mb-6 text-sm">
+  <div><span class="text-zinc-500">Host:</span> <span class="font-mono">{{ .Host.Host }}</span></div>
+  <div><span class="text-zinc-500">User:</span> <span class="font-mono">{{ .Host.User }}</span></div>
+  <div><span class="text-zinc-500">SSH port:</span> <span class="font-mono">{{ .Host.Port }}</span></div>
+</div>
+
+<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2">Available actions</h2>
+{{ if .Actions }}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+  {{ range .Actions }}
+  <a href="{{ .URL }}" class="block bg-white border rounded-lg p-4 {{ if eq .Severity "danger" }}border-red-300 hover:bg-red-50{{ else }}hover:bg-zinc-50{{ end }} transition">
+    <div class="font-medium">{{ .Label }}</div>
+    {{ if .Description }}<div class="text-sm text-zinc-500 mt-1">{{ .Description }}</div>{{ end }}
+  </a>
+  {{ end }}
+</div>
+{{ else }}
+<p class="text-sm text-zinc-400 italic">No actions defined for hosts in this group. Add an <code>applies_to</code> entry to an action in <code>actions.yml</code>.</p>
+{{ end }}
+{{ template "footer" . }}{{ end }}

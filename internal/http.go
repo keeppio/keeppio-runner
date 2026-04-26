@@ -10,8 +10,9 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
-	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -92,6 +93,7 @@ func (s *Server) Mux() *http.ServeMux {
 	mux.HandleFunc("/tasks/", s.requireAuth(s.handleTaskShow))           // /tasks/<id>
 	mux.HandleFunc("/tasks/cancel/", s.requireAuth(s.handleTaskCancel))  // POST
 	mux.HandleFunc("/inventory", s.requireAuth(s.handleInventory))
+	mux.HandleFunc("/inventory/", s.requireAuth(s.handleInventoryShow)) // /inventory/<group>/<name>
 	mux.HandleFunc("/settings", s.requireAuth(s.handleSettingsGet))
 	mux.HandleFunc("/settings.submit", s.requireAuth(s.handleSettingsPost))
 	mux.HandleFunc("/ws/tasks/", s.requireAuth(s.handleTaskWS))          // /ws/tasks/<id>
@@ -201,7 +203,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 }
 
 // /run/<id>  GET = form, POST = enqueue (POSTed to /run/<id>.submit
-// to keep the GET clean for permalink-friendly URLs).
+// to keep the GET clean for permalink-friendly URLs). Query params
+// are read as field-value defaults — used by the inventory drill-down
+// page to land you on a pre-filled form.
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/run/")
 	id = strings.TrimSuffix(id, ".submit")
@@ -216,9 +220,10 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	// Resolve dropdowns at form-render time. Failures show inline so
 	// the operator can see WHY a list is empty.
+	q := r.URL.Query()
 	fields := make([]resolvedField, 0, len(action.Fields))
 	for _, f := range action.Fields {
-		rf := resolvedField{Field: f}
+		rf := resolvedField{Field: f, Value: q.Get(f.Name)}
 		if f.Type == "enum" && f.Source != nil {
 			opts, err := ResolveOptions(r.Context(), s.cfg, f)
 			if err != nil {
@@ -230,11 +235,23 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 		fields = append(fields, rf)
 	}
 	s.render(w, "run.html", map[string]any{
-		"Env":    s.cfg.Env,
-		"User":   currentUser(r),
-		"Action": action,
-		"Fields": fields,
+		"Env":          s.cfg.Env,
+		"User":         currentUser(r),
+		"Action":       action,
+		"Fields":       fields,
+		"DeployPubkey": deployPubkeyFor(action, s.cfg),
 	})
+}
+
+// deployPubkeyFor returns the env's deploy SSH public key when the
+// action is one whose operator workflow needs it (registering a fresh
+// server, where the key has to be installed before the runner can SSH
+// in). Returns "" otherwise so the template can stay simple.
+func deployPubkeyFor(a Action, cfg *Config) string {
+	if a.ID != "server-register" {
+		return ""
+	}
+	return ReadDeployPubkey(cfg.RepoPath, cfg.Env)
 }
 
 func (s *Server) handleRunSubmit(w http.ResponseWriter, r *http.Request, action Action) {
@@ -449,13 +466,116 @@ func (s *Server) handleTaskWS(w http.ResponseWriter, r *http.Request) {
 // Inventory browser + settings
 // ──────────────────────────────────────────────────────────────────────
 
+// inventoryGroupMeta drives the dashboard-y rendering of the index
+// page. Each entry is a section title + an icon + a body-copy line.
+// The order here is the order on the page.
+var inventoryGroupMeta = []struct {
+	Group string
+	Title string
+	Icon  string
+	Hint  string
+}{
+	{"clients", "Tenants", "🏢", "Live customer deployments — each a full Docker stack on its own VPS."},
+	{"servers", "Registered servers", "🖥️", "VPSes that are reachable but not yet bound to a tenant."},
+	{"ops", "Ops infrastructure", "⚙️", "Boxes that host the runner / shared infra (this server)."},
+}
+
+type inventoryGroupView struct {
+	Group string
+	Title string
+	Icon  string
+	Hint  string
+	Hosts []HostEntry
+}
+
 func (s *Server) handleInventory(w http.ResponseWriter, r *http.Request) {
-	hostsPath := filepath.Join(s.cfg.RepoPath, "inventories", s.cfg.Env, "hosts.yml")
-	hostsBody, _ := os.ReadFile(hostsPath)
+	tree, err := ReadInventoryTree(s.cfg.RepoPath, s.cfg.Env)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	views := make([]inventoryGroupView, 0, len(inventoryGroupMeta))
+	for _, m := range inventoryGroupMeta {
+		views = append(views, inventoryGroupView{
+			Group: m.Group, Title: m.Title, Icon: m.Icon, Hint: m.Hint,
+			Hosts: tree[m.Group],
+		})
+	}
 	s.render(w, "inventory.html", map[string]any{
-		"Env":       s.cfg.Env,
-		"User":      currentUser(r),
-		"HostsBody": string(hostsBody),
+		"Env":    s.cfg.Env,
+		"User":   currentUser(r),
+		"Groups": views,
+	})
+}
+
+// /inventory/<group>/<name> — drill-down: show the host's connection
+// info + every Action that declares it acts on this group, with a
+// pre-filled link to /run/<action>?<applies_to.field>=<name>.
+func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/inventory/")
+	parts := strings.SplitN(rest, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		http.Redirect(w, r, "/inventory", http.StatusSeeOther)
+		return
+	}
+	group, name := parts[0], parts[1]
+	tree, err := ReadInventoryTree(s.cfg.RepoPath, s.cfg.Env)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	var host HostEntry
+	found := false
+	for _, h := range tree[group] {
+		if h.Name == name {
+			host, found = h, true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "no such host", http.StatusNotFound)
+		return
+	}
+
+	// Build action links. For each action, check if it declares
+	// applies_to entries with matching group; for each match render
+	// a /run/<id>?<field>=<name> link.
+	type actionLink struct {
+		ID          string
+		Label       string
+		Description string
+		Severity    string
+		URL         string
+	}
+	var links []actionLink
+	for _, a := range s.cat.All() {
+		for _, ap := range a.AppliesTo {
+			if ap.Group != group {
+				continue
+			}
+			u := "/run/" + a.ID + "?" + url.Values{ap.Field: {name}}.Encode()
+			links = append(links, actionLink{
+				ID: a.ID, Label: a.Label, Description: a.Description,
+				Severity: a.Severity, URL: u,
+			})
+			break
+		}
+	}
+
+	// Stable order: dangerous last so they don't draw the eye first.
+	sort.SliceStable(links, func(i, j int) bool {
+		if links[i].Severity == links[j].Severity {
+			return links[i].Label < links[j].Label
+		}
+		return links[i].Severity != "danger"
+	})
+
+	s.render(w, "inventory_show.html", map[string]any{
+		"Env":     s.cfg.Env,
+		"User":    currentUser(r),
+		"Group":   group,
+		"Host":    host,
+		"Actions": links,
 	})
 }
 
