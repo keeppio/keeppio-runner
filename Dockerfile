@@ -24,7 +24,7 @@ RUN apk add --no-cache \
       ca-certificates \
       rsync \
       tini \
- && ansible-galaxy collection install community.general community.docker ansible.posix 2>&1 | tail -3 \
+ && ansible-galaxy collection install --upgrade community.general community.docker ansible.posix 2>&1 | tail -3 \
  && rm -rf /root/.ansible/tmp /var/cache/apk/*
 
 # Non-root user so logs/db files land with predictable ownership.
