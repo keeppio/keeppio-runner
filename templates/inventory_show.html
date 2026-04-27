@@ -401,6 +401,120 @@
 </script>
 {{ end }}
 
+{{ if .IsHostScoped }}
+<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2 flex items-center gap-2">
+  <span>Orphan containers</span>
+  <span id="orphans-status" class="text-xs text-zinc-400 normal-case tracking-normal italic">loading…</span>
+  <button id="orphans-refresh" type="button"
+          class="ml-auto text-xs text-zinc-500 hover:text-zinc-900 normal-case tracking-normal underline-offset-2 hover:underline">
+    refresh
+  </button>
+</h2>
+<div class="bg-white border rounded-lg overflow-hidden mb-6">
+  <table class="w-full text-sm">
+    <thead class="bg-zinc-50 text-zinc-500 uppercase tracking-wide text-xs">
+      <tr>
+        <th class="px-3 py-2 text-left font-medium">Container</th>
+        <th class="px-3 py-2 text-left font-medium">Image</th>
+        <th class="px-3 py-2 text-left font-medium">State</th>
+        <th class="px-3 py-2 text-left font-medium">Status</th>
+        <th class="px-3 py-2 text-right font-medium w-24">Delete</th>
+      </tr>
+    </thead>
+    <tbody id="orphans-tbody">
+      <tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 italic">Loading…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<script>
+(function() {
+  // html/template's JS context escapes the value into a safe JS string
+  // literal — no extra quoting needed (matches the tenant containers
+  // pattern above).
+  const server = {{ .Host.Name }};
+  const tbody = document.getElementById('orphans-tbody');
+  const status = document.getElementById('orphans-status');
+  const refresh = document.getElementById('orphans-refresh');
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  async function loadOrphans() {
+    status.textContent = 'loading…';
+    try {
+      const r = await fetch(`/ui/servers/${encodeURIComponent(server)}/orphan-containers`, { headers: { 'Accept': 'application/json' } });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+      }
+      const data = await r.json();
+      const list = data.containers || [];
+      if (list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-4 text-center text-zinc-400 italic">No orphan keeppio-* containers found.</td></tr>`;
+      } else {
+        tbody.innerHTML = list.map(c => `
+          <tr class="border-t" data-name="${escapeHtml(c.name)}">
+            <td class="px-3 py-2 font-mono">${escapeHtml(c.name)}</td>
+            <td class="px-3 py-2 font-mono text-zinc-600 break-all">${escapeHtml(c.image)}</td>
+            <td class="px-3 py-2">
+              <span class="text-xs px-2 py-0.5 rounded ${c.running ? 'bg-green-100 text-green-800' : 'bg-zinc-100 text-zinc-700'}">${escapeHtml(c.state)}</span>
+            </td>
+            <td class="px-3 py-2 text-zinc-600">${escapeHtml(c.status)}</td>
+            <td class="px-3 py-2 text-right">
+              <button type="button" class="orphan-delete text-xs px-2 py-1 rounded bg-red-50 text-red-700 hover:bg-red-100 border border-red-200" data-name="${escapeHtml(c.name)}" title="docker rm -f ${escapeHtml(c.name)}">delete</button>
+            </td>
+          </tr>`).join('');
+      }
+      status.textContent = `${list.length} found`;
+    } catch (e) {
+      status.textContent = '';
+      tbody.innerHTML = `<tr><td colspan="5" class="px-3 py-4 text-center text-red-600">Error: ${escapeHtml(e.message || e)}</td></tr>`;
+    }
+  }
+
+  async function deleteOrphan(name, btn) {
+    // Confirm before firing — `docker rm -f` is destructive and the
+    // operator should re-read the name in the prompt.
+    if (!window.confirm(`docker rm -f ${name}?\n\nThis will force-remove the container. This cannot be undone.`)) {
+      return;
+    }
+    btn.disabled = true;
+    const original = btn.textContent;
+    btn.textContent = 'deleting…';
+    try {
+      const r = await fetch(`/ui/servers/${encodeURIComponent(server)}/orphan-containers/${encodeURIComponent(name)}/delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+      }
+      // Refresh the list so the deleted row disappears (or re-appears,
+      // if docker re-spawned it from a compose stack).
+      await loadOrphans();
+    } catch (e) {
+      alert(`Failed to delete ${name}: ${e.message || e}`);
+      btn.disabled = false;
+      btn.textContent = original;
+    }
+  }
+
+  tbody.addEventListener('click', (e) => {
+    const btn = e.target.closest('button.orphan-delete');
+    if (!btn) return;
+    deleteOrphan(btn.dataset.name, btn);
+  });
+  refresh.addEventListener('click', loadOrphans);
+  loadOrphans();
+})();
+</script>
+{{ end }}
+
 {{ if .Colocated }}
 <h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2">Co-located on this VPS ({{ .Host.Host }})</h2>
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">

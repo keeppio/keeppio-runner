@@ -125,6 +125,12 @@ func (s *Server) Mux() *http.ServeMux {
 	// JS can hit them without exposing a bearer token to the browser.
 	// Exact same handlers under a different prefix.
 	mux.HandleFunc("/ui/tenants/", s.requireAuth(s.handleUITenantsRoute))
+
+	// Host-scoped ops (orphan containers on registered servers / ops
+	// boxes). Same shape as the tenants routes — bearer-auth API +
+	// cookie-auth UI alias for the inventory page's inline JS.
+	mux.HandleFunc("/api/servers/", s.requireAPIAuth(s.handleAPIServersRoute))
+	mux.HandleFunc("/ui/servers/", s.requireAuth(s.handleUIServersRoute))
 	return mux
 }
 
@@ -664,6 +670,7 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 		"Actions":         links,
 		"Colocated":       colocatedHosts,
 		"IsTenant":        group == "clients",
+		"IsHostScoped":    group == "servers" || group == "ops",
 		"DisabledDomains": disabledSet,
 	})
 }
