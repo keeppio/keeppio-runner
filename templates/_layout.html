@@ -5,6 +5,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ .Env }} · keeppio-runner</title>
+  <!-- Set the dark class BEFORE Tailwind loads so first paint is right.
+       Preference order: explicit user choice (localStorage) → OS prefers-color-scheme. -->
+  <script>
+    (function() {
+      var pref = localStorage.getItem('theme');
+      var dark = pref ? pref === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    })();
+  </script>
+  <script>tailwind.config = { darkMode: 'class' };</script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
   <style>
@@ -24,8 +34,10 @@
       pointer-events: none;
       z-index: 0;
     }
+    .dark body::before { opacity: 0.04; }
     {{ if eq .Env "production" }}
     body { background-color: rgba(255, 230, 230, 1); }
+    .dark body { background-color: #1a0808 !important; }
     body::after {
       content: "";
       position: fixed;
@@ -34,8 +46,10 @@
       pointer-events: none;
       z-index: 0;
     }
+    .dark body::after { background: rgba(220, 38, 38, 0.18); }
     {{ else if eq .Env "staging" }}
     body { background-color: rgba(255, 247, 230, 1); }
+    .dark body { background-color: #1a1208 !important; }
     body::after {
       content: "";
       position: fixed;
@@ -44,8 +58,10 @@
       pointer-events: none;
       z-index: 0;
     }
+    .dark body::after { background: rgba(217, 119, 6, 0.14); }
     {{ else if eq .Env "sandbox" }}
     body { background-color: rgba(232, 247, 232, 1); }
+    .dark body { background-color: #08160a !important; }
     body::after {
       content: "";
       position: fixed;
@@ -54,28 +70,94 @@
       pointer-events: none;
       z-index: 0;
     }
+    .dark body::after { background: rgba(22, 163, 74, 0.12); }
     {{ end }}
     main, header { position: relative; z-index: 1; }
+
+    /* Dark-mode overrides for the Tailwind utilities we use across
+       templates. Done via raw CSS instead of editing every template
+       because the Tailwind CDN's `dark:` variant requires touching
+       every class — and we have ~10 templates worth. */
+    .dark .bg-white            { background-color: #18181b; }
+    .dark .bg-zinc-50          { background-color: #27272a; }
+    .dark .bg-zinc-100         { background-color: #3f3f46; }
+    .dark .bg-zinc-900         { background-color: #09090b; }
+    .dark .text-zinc-500       { color: #a1a1aa; }
+    .dark .text-zinc-700       { color: #d4d4d8; }
+    .dark .text-zinc-900       { color: #f4f4f5; }
+    .dark .text-zinc-400       { color: #a1a1aa; }
+    .dark .border              { border-color: #3f3f46; }
+    .dark .border-t            { border-top-color: #3f3f46; }
+    .dark .border-b            { border-bottom-color: #3f3f46; }
+    .dark .hover\:bg-zinc-50:hover { background-color: #27272a; }
+    .dark .hover\:bg-blue-50:hover { background-color: #172554; }
+    .dark .hover\:bg-red-50:hover  { background-color: #450a0a; }
+    .dark .hover\:bg-green-50:hover{ background-color: #052e16; }
+    .dark .hover\:bg-amber-50:hover{ background-color: #451a03; }
+    .dark .hover\:border-blue-300:hover { border-color: #1e40af; }
+    .dark .hover\:border-red-300:hover  { border-color: #991b1b; }
+    .dark .hover\:text-zinc-900:hover { color: #f4f4f5; }
+    .dark a.text-blue-600       { color: #60a5fa; }
+    .dark .text-emerald-600     { color: #34d399; }
+    .dark .text-red-600         { color: #f87171; }
+    .dark .text-amber-600       { color: #fbbf24; }
+    .dark .bg-zinc-300          { background-color: #52525b; }
+    .dark .bg-emerald-500       { background-color: #16a34a; }
+    .dark .bg-amber-100         { background-color: #451a03; }
+    .dark .text-amber-800       { color: #fbbf24; }
+    .dark .bg-emerald-100       { background-color: #052e16; }
+    .dark .text-emerald-800     { color: #34d399; }
+    .dark .bg-red-100           { background-color: #450a0a; }
+    .dark .text-red-800         { color: #f87171; }
+    .dark .bg-green-100         { background-color: #052e16; }
+    .dark .text-green-800       { color: #34d399; }
+    /* Form inputs */
+    .dark input, .dark textarea, .dark select {
+      background-color: #18181b; color: #f4f4f5; border-color: #3f3f46;
+    }
+    .dark input::placeholder { color: #71717a; }
+    /* Code blocks: log already dark; keep that, but soft-darken inline pre */
+    .dark pre.bg-zinc-50 { background-color: #18181b; color: #e4e4e7; }
   </style>
 </head>
-<body class="bg-zinc-50 text-zinc-900 min-h-screen">
-  <header class="border-b bg-white">
+<body class="bg-zinc-50 text-zinc-900 min-h-screen dark:text-zinc-100">
+  <header class="border-b bg-white dark:bg-zinc-900 dark:border-zinc-800">
     <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
       <div class="flex items-center gap-3">
         <a href="/" class="font-semibold">keeppio-runner</a>
-        <span class="text-xs px-2 py-0.5 rounded {{ if eq .Env "production" }}bg-red-100 text-red-800{{ else if eq .Env "staging" }}bg-amber-100 text-amber-800{{ else if eq .Env "sandbox" }}bg-green-100 text-green-800{{ else }}bg-zinc-100 text-zinc-700{{ end }}">{{ .Env }}</span>
+        <span class="text-xs px-2 py-0.5 rounded
+              {{ if eq .Env "production" }}bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300{{
+              else if eq .Env "staging" }}bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300{{
+              else if eq .Env "sandbox" }}bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300{{
+              else }}bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300{{ end }}">{{ .Env }}</span>
       </div>
       <nav class="flex items-center gap-4 text-sm">
         <a href="/" class="hover:underline">Inventory</a>
         <a href="/tasks" class="hover:underline">Tasks</a>
         <a href="/settings" class="hover:underline">Settings</a>
         <form action="/logout" method="post" class="inline">
-          <button class="text-zinc-500 hover:text-zinc-900">Sign out</button>
+          <button class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">Sign out</button>
         </form>
+        <button id="theme-toggle" type="button" aria-label="Toggle dark mode"
+                class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 text-base leading-none px-1"
+                title="Toggle dark mode">
+          <span class="dark:hidden">🌙</span>
+          <span class="hidden dark:inline">☀️</span>
+        </button>
       </nav>
     </div>
   </header>
   <main class="max-w-5xl mx-auto px-4 py-6">
+  <script>
+    (function() {
+      var btn = document.getElementById('theme-toggle');
+      if (!btn) return;
+      btn.addEventListener('click', function() {
+        var dark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('theme', dark ? 'dark' : 'light');
+      });
+    })();
+  </script>
 {{ end }}
 
 {{ define "footer" }}
