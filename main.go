@@ -47,6 +47,9 @@ func main() {
 	if err := internal.Migrate(ctx, db); err != nil {
 		log.Fatalf("migrate: %v", err)
 	}
+	if err := internal.EnsureAdminUsername(ctx, db, os.Getenv("RUNNER_ADMIN_USERNAME")); err != nil {
+		log.Fatalf("ensure admin username: %v", err)
+	}
 	if err := internal.EnsureAdmin(ctx, db, cfg.InitialAdminPassword); err != nil {
 		log.Fatalf("seed admin: %v", err)
 	}

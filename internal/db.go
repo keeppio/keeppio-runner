@@ -149,6 +149,66 @@ func EnsureAdmin(ctx context.Context, db *sql.DB, initialPassword string) error 
 	return err
 }
 
+// EnsureAdminUsername seeds the admin username on first boot. Reads
+// RUNNER_ADMIN_USERNAME from env; falls back to "admin" only when an
+// env override isn't given AND the settings row is missing entirely
+// (i.e. truly first boot). Existing deploys whose row is already
+// "admin" stay that way until the operator explicitly rotates via
+// the settings page.
+func EnsureAdminUsername(ctx context.Context, db *sql.DB, initial string) error {
+	var existing string
+	err := db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key='admin_username'`).Scan(&existing)
+	if err == nil {
+		return nil // already set, leave it
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	name := strings.TrimSpace(initial)
+	if name == "" {
+		name = "admin"
+	}
+	_, err = db.ExecContext(ctx,
+		`INSERT INTO settings(key,value) VALUES('admin_username',?)`, name)
+	return err
+}
+
+// GetAdminUsername reads the current admin login from settings.
+// Defaults to "admin" if the row is somehow missing (defensive — the
+// boot-time EnsureAdminUsername should have populated it).
+func GetAdminUsername(ctx context.Context, db *sql.DB) (string, error) {
+	var name string
+	err := db.QueryRowContext(ctx,
+		`SELECT value FROM settings WHERE key='admin_username'`).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "admin", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+// SetAdminUsername updates the admin login. Used by the settings UI.
+// Username constraint: 3..32 chars, [a-z0-9-_.]. Lowercase only —
+// avoids OS-level case-sensitivity surprises on the SSH side and keeps
+// audit log entries readable.
+func SetAdminUsername(ctx context.Context, db *sql.DB, name string) error {
+	name = strings.TrimSpace(strings.ToLower(name))
+	if len(name) < 3 || len(name) > 32 {
+		return errors.New("username must be 3–32 characters")
+	}
+	for _, c := range name {
+		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.'
+		if !ok {
+			return errors.New("username may only contain a–z, 0–9, hyphen, underscore, dot")
+		}
+	}
+	_, err := db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO settings(key,value) VALUES('admin_username',?)`, name)
+	return err
+}
+
 // EnsureSessionKey returns a stable session-signing key, generating
 // one on first call and persisting it in settings.
 func EnsureSessionKey(ctx context.Context, db *sql.DB) ([]byte, error) {

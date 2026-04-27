@@ -179,9 +179,14 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	username := r.FormValue("username")
+	username := strings.ToLower(strings.TrimSpace(r.FormValue("username")))
 	password := r.FormValue("password")
-	if username != "admin" {
+	wantUser, err := GetAdminUsername(r.Context(), s.db)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if username != wantUser {
 		s.render(w, "login.html", map[string]any{"Env": s.cfg.Env, "Error": "invalid credentials"})
 		return
 	}
@@ -194,7 +199,7 @@ func (s *Server) handleLoginPost(w http.ResponseWriter, r *http.Request) {
 		s.render(w, "login.html", map[string]any{"Env": s.cfg.Env, "Error": "invalid credentials"})
 		return
 	}
-	id, err := NewSession(r.Context(), s.db, "admin")
+	id, err := NewSession(r.Context(), s.db, wantUser)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
