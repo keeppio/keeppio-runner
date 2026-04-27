@@ -144,7 +144,7 @@ func hasMigrateProfile(profiles []string) bool {
 // of an ops box's host_vars/<ops>/vars.yml. Used to compute the
 // expected `keeppio-<ops>-runner-<instance>` set. Best-effort: missing
 // or unparseable file → empty list, the caller falls back to the
-// hard-coded {staging,production} list per the task spec.
+// hard-coded {sandbox,staging,production} list per the task spec.
 func readRunnerInstanceNames(repo, env, opsName string) []string {
 	path := filepath.Join(repo, "inventories", env, "host_vars", opsName, "vars.yml")
 	b, err := os.ReadFile(path)
@@ -210,7 +210,7 @@ func computeExpectedContainers(cfg *Config) (map[string]bool, error) {
 		// canonical instance names so we don't accidentally orphan-flag
 		// a live runner.
 		if len(instances) == 0 {
-			instances = []string{"staging", "production"}
+			instances = []string{"sandbox", "staging", "production"}
 		}
 		for _, inst := range instances {
 			expected["keeppio-"+h.Name+"-runner-"+inst] = true
