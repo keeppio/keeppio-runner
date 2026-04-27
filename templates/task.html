@@ -22,6 +22,12 @@
 <form action="/tasks/cancel/{{ .Task.ID }}" method="post" class="mb-3">
   <button class="text-xs px-3 py-1 border rounded hover:bg-red-50 hover:border-red-300">Cancel</button>
 </form>
+{{ else }}
+<form action="/tasks/replay/{{ .Task.ID }}" method="post" class="mb-3"
+      onsubmit="return confirm('Re-run this task with the same args?')">
+  <button class="text-xs px-3 py-1 border rounded hover:bg-blue-50 hover:border-blue-300"
+          title="Enqueue a fresh task using this one's action + args">↻ Replay</button>
+</form>
 {{ end }}
 
 <pre id="log" class="log bg-zinc-900 text-zinc-100 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap">{{ .LogBody }}</pre>

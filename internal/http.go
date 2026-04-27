@@ -98,6 +98,7 @@ func (s *Server) Mux() *http.ServeMux {
 	mux.HandleFunc("/tasks", s.requireAuth(s.handleTasksList))
 	mux.HandleFunc("/tasks/", s.requireAuth(s.handleTaskShow))           // /tasks/<id>
 	mux.HandleFunc("/tasks/cancel/", s.requireAuth(s.handleTaskCancel))  // POST
+	mux.HandleFunc("/tasks/replay/", s.requireAuth(s.handleTaskReplay))  // POST
 	mux.HandleFunc("/inventory", s.requireAuth(s.handleInventory))
 	mux.HandleFunc("/inventory/", s.requireAuth(s.handleInventoryShow)) // /inventory/<group>/<name>
 	mux.HandleFunc("/settings", s.requireAuth(s.handleSettingsGet))
@@ -473,6 +474,60 @@ func (s *Server) handleTaskCancel(w http.ResponseWriter, r *http.Request) {
 	}
 	s.runner.Cancel(id)
 	http.Redirect(w, r, fmt.Sprintf("/tasks/%d", id), http.StatusSeeOther)
+}
+
+// handleTaskReplay re-enqueues an existing task with the same action_id +
+// args. Refuses while the source task is still queued / running so the
+// operator can't double-fire by accident. Redirects to the new task's
+// detail page so the live log is one click away.
+func (s *Server) handleTaskReplay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	idStr := strings.TrimPrefix(r.URL.Path, "/tasks/replay/")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "bad id", http.StatusBadRequest)
+		return
+	}
+	var (
+		actionID, argsJSON, status string
+	)
+	err = s.db.QueryRowContext(r.Context(),
+		`SELECT action_id, args_json, status FROM tasks WHERE id=?`, id).
+		Scan(&actionID, &argsJSON, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "no such task", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if status == "queued" || status == "running" {
+		http.Error(w, "refusing to replay a "+status+" task — wait for it to finish or cancel it", http.StatusConflict)
+		return
+	}
+	action, ok := s.cat.ByID(actionID)
+	if !ok {
+		http.Error(w, "action no longer in catalog: "+actionID, http.StatusGone)
+		return
+	}
+	args := map[string]string{}
+	if argsJSON != "" {
+		_ = json.Unmarshal([]byte(argsJSON), &args)
+	}
+	user := currentUser(r)
+	if user == "" {
+		user = "ui:replay"
+	}
+	newID, err := s.runner.Enqueue(r.Context(), action, args, user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/tasks/%d", newID), http.StatusSeeOther)
 }
 
 // ──────────────────────────────────────────────────────────────────────
