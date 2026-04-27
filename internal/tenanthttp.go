@@ -306,9 +306,12 @@ func (s *Server) handleTenantDomainToggle(w http.ResponseWriter, r *http.Request
 		return
 	}
 	switch body.DomainKey {
-	case "webapp", "api", "bridge", "paynl", "reverb":
+	case "webapp", "api", "bridge", "paynl", "reverb", "all":
+		// "all" toggles every per-tenant FQDN at once — used by the
+		// tenant page's Disable / Re-enable buttons. The playbook
+		// resolves the actual list from the tenant's host_vars.
 	default:
-		apiErr(w, http.StatusBadRequest, "domain_key must be one of webapp|api|bridge|paynl|reverb")
+		apiErr(w, http.StatusBadRequest, "domain_key must be one of webapp|api|bridge|paynl|reverb|all")
 		return
 	}
 	if body.State != "on" && body.State != "off" {

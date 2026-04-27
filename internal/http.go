@@ -662,6 +662,20 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// True iff the tenant has at least one FQDN AND every one of them
+	// is in the disabled set — used by the tenant page's bulk
+	// "Disable / Re-enable everything" button to flip its label.
+	allDomainsOff := false
+	if group == "clients" && len(host.AllFqdns) > 0 {
+		allDomainsOff = true
+		for _, d := range host.AllFqdns {
+			if !disabledSet[d.Fqdn] {
+				allDomainsOff = false
+				break
+			}
+		}
+	}
+
 	s.render(w, "inventory_show.html", map[string]any{
 		"Env":             s.cfg.Env,
 		"User":            currentUser(r),
@@ -672,6 +686,7 @@ func (s *Server) handleInventoryShow(w http.ResponseWriter, r *http.Request) {
 		"IsTenant":        group == "clients",
 		"IsHostScoped":    group == "servers" || group == "ops",
 		"DisabledDomains": disabledSet,
+		"AllDomainsOff":   allDomainsOff,
 	})
 }
 

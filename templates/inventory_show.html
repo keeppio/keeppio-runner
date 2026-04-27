@@ -107,7 +107,19 @@
 {{ end }}
 
 {{ if .Host.AllFqdns }}
-<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2">Domains</h2>
+<h2 class="text-sm uppercase tracking-wide text-zinc-500 mb-2 flex items-center gap-2">
+  <span>Domains</span>
+  {{ if .IsTenant }}
+  {{ $allOff := .AllDomainsOff }}
+  <button id="domains-bulk-toggle" type="button"
+          data-state="{{ if $allOff }}on{{ else }}off{{ end }}"
+          class="ml-auto text-xs normal-case tracking-normal px-2 py-1 rounded
+                 {{ if $allOff }}bg-emerald-100 text-emerald-800 hover:bg-emerald-200{{ else }}bg-amber-100 text-amber-800 hover:bg-amber-200{{ end }}"
+          title="{{ if $allOff }}All FQDNs are currently OFF — click to bring everything back online.{{ else }}Switch every per-tenant FQDN to a static 'service is turned off' page.{{ end }}">
+    {{ if $allOff }}Re-enable everything{{ else }}Disable everything{{ end }}
+  </button>
+  {{ end }}
+</h2>
 <div class="bg-white border rounded-lg overflow-hidden mb-6">
   <table class="w-full text-sm">
     <tbody>
@@ -397,6 +409,45 @@
       }
     });
   });
+
+  // ── Bulk Disable / Re-enable everything ──────────────────────────
+  // Single-click flip every per-tenant FQDN. Uses domain_key="all" on
+  // the same toggle endpoint so the playbook resolves the FQDN list
+  // from host_vars (no hardcoded list on the client).
+  const bulk = document.getElementById('domains-bulk-toggle');
+  if (bulk) {
+    bulk.addEventListener('click', async () => {
+      const want = bulk.dataset.state;        // "off" or "on"
+      const verb = want === 'off' ? 'disable' : 'enable';
+      if (!confirm(`Really ${verb} every per-tenant FQDN for ${slug}?`)) return;
+      bulk.disabled = true;
+      const original = bulk.textContent;
+      bulk.textContent = want === 'off' ? 'Disabling…' : 'Re-enabling…';
+      try {
+        const r = await fetch(`/ui/tenants/${encodeURIComponent(slug)}/domains/toggle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ domain_key: 'all', state: want }),
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`HTTP ${r.status}: ${t.slice(0, 200)}`);
+        }
+        const body = await r.json();
+        // Hand the operator straight to the task log so they can
+        // watch the playbook commit + reload nginx.
+        if (body && body.url) {
+          window.location.href = body.url;
+        } else {
+          window.location.reload();
+        }
+      } catch (err) {
+        alert(`Bulk toggle failed: ${err.message || err}`);
+        bulk.textContent = original;
+        bulk.disabled = false;
+      }
+    });
+  }
 })();
 </script>
 {{ end }}
