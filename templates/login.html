@@ -18,6 +18,18 @@
       content: ""; position: fixed; inset: 0;
       background: rgba(220, 38, 38, 0.08); pointer-events: none; z-index: 0;
     }
+    {{ else if eq .Env "staging" }}
+    body { background-color: rgba(255, 247, 230, 1); }
+    body::after {
+      content: ""; position: fixed; inset: 0;
+      background: rgba(217, 119, 6, 0.06); pointer-events: none; z-index: 0;
+    }
+    {{ else if eq .Env "sandbox" }}
+    body { background-color: rgba(232, 247, 232, 1); }
+    body::after {
+      content: ""; position: fixed; inset: 0;
+      background: rgba(22, 163, 74, 0.06); pointer-events: none; z-index: 0;
+    }
     {{ end }}
     form { position: relative; z-index: 1; }
   </style>
