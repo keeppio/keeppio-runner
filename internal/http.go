@@ -85,7 +85,18 @@ func NewServer(cfg *Config, db *sql.DB, cat *Catalog, runner *Runner, tplFS, sta
 
 func (s *Server) Mux() *http.ServeMux {
 	mux := http.NewServeMux()
+	// Health check, no auth. External monitors (Kuma on the same ops
+	// box, third-party uptime, etc.) ping this; the server up + the
+	// SQLite handle alive is enough signal that the runner can
+	// accept new tasks.
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		if err := s.db.PingContext(ctx); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, "db ping failed: "+err.Error()+"\n")
+			return
+		}
 		_, _ = io.WriteString(w, "ok\n")
 	})
 	// Embedded static assets (background image, etc.) served from /static/<file>.
