@@ -2,16 +2,23 @@
 # Compiles frontend/app.css → static/app.css using the Tailwind v4
 # standalone CLI (no Node toolchain). Also vendors htmx so the runtime
 # image carries no third-party CDN dependencies.
-FROM alpine:3.20 AS frontend
+#
+# Debian-slim instead of alpine: the v4 standalone binary (compiled with
+# Bun) needs libstdc++ + libgcc_s symbols that alpine's musl base lacks
+# even with libstdc++ apk'd. Frontend stage doesn't ship to runtime so
+# the extra ~70MB here costs nothing in the deployed image.
+FROM debian:12-slim AS frontend
 WORKDIR /src
 ARG TAILWIND_VERSION=v4.2.4
 ARG HTMX_VERSION=2.0.4
-RUN apk add --no-cache curl ca-certificates \
- && arch="$(uname -m)"; \
-    case "$arch" in \
-      aarch64) asset="tailwindcss-linux-arm64-musl" ;; \
-      x86_64)  asset="tailwindcss-linux-x64-musl" ;; \
-      *) echo "unsupported arch: $arch"; exit 1 ;; \
+ARG TARGETARCH=amd64
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && case "$TARGETARCH" in \
+        amd64) asset=tailwindcss-linux-x64 ;; \
+        arm64) asset=tailwindcss-linux-arm64 ;; \
+        *) echo "unsupported TARGETARCH: $TARGETARCH"; exit 1 ;; \
     esac \
  && curl -fsSL -o /usr/local/bin/tailwindcss \
       "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/${asset}" \
