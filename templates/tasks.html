@@ -1,41 +1,133 @@
 {{ define "tasks.html" }}{{ template "header" . }}
-<h1 class="text-xl font-semibold mb-4">Recent tasks</h1>
-{{ if .Tasks }}
-<div class="bg-white border rounded-lg overflow-hidden">
-  <table class="w-full text-sm">
-    <thead class="bg-zinc-50 text-zinc-500 text-left">
-      <tr>
-        <th class="px-3 py-2 font-medium">#</th>
-        <th class="px-3 py-2 font-medium">Action</th>
-        <th class="px-3 py-2 font-medium">Status</th>
-        <th class="px-3 py-2 font-medium">When</th>
-        <th class="px-3 py-2 font-medium">By</th>
-        <th class="px-3 py-2 font-medium w-24"></th>
-      </tr>
-    </thead>
-    <tbody>
-      {{ range .Tasks }}
-      <tr class="border-t hover:bg-zinc-50">
-        <td class="px-3 py-2 font-mono"><a href="/tasks/{{ .ID }}" class="text-blue-600 hover:underline">{{ .ID }}</a></td>
-        <td class="px-3 py-2">{{ .ActionLabel }}</td>
-        <td class="px-3 py-2"><span class="text-xs px-2 py-0.5 rounded {{ statusBadge .Status }}">{{ .Status }}{{ if .ExitCode }} (exit {{ .ExitCode }}){{ end }}</span></td>
-        <td class="px-3 py-2 text-zinc-500">{{ timeAgo .CreatedAt }}</td>
-        <td class="px-3 py-2 text-zinc-500">{{ .Username }}</td>
-        <td class="px-3 py-2 text-right">
-          {{ if and (ne .Status "queued") (ne .Status "running") }}
-          <form action="/tasks/replay/{{ .ID }}" method="post"
-                onsubmit="return confirm('Re-run this task with the same args?')">
-            <button class="text-xs px-2 py-0.5 border rounded hover:bg-blue-50 hover:border-blue-300"
-                    title="Enqueue a fresh task using this one's action + args">↻ Replay</button>
-          </form>
-          {{ end }}
-        </td>
-      </tr>
-      {{ end }}
-    </tbody>
-  </table>
+
+<div class="view-header">
+  <div class="view-title">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    <span>Tasks</span>
+    <span class="muted tabular" style="font-size:12px">{{ .Total }} total</span>
+  </div>
 </div>
-{{ else }}
-<p class="text-zinc-500">No tasks yet. Pick an action from the dashboard to run one.</p>
+
+<form method="get" class="surface" style="padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:12px">
+  <div style="min-width:140px">
+    <label for="f-status">Status</label>
+    {{ $st := .Filters.Status }}
+    <select name="status" id="f-status">
+      <option value=""           {{ if eq $st ""          }}selected{{ end }}>any</option>
+      <option value="queued"     {{ if eq $st "queued"    }}selected{{ end }}>queued</option>
+      <option value="running"    {{ if eq $st "running"   }}selected{{ end }}>running</option>
+      <option value="success"    {{ if eq $st "success"   }}selected{{ end }}>success</option>
+      <option value="error"      {{ if eq $st "error"     }}selected{{ end }}>error</option>
+      <option value="cancelled"  {{ if eq $st "cancelled" }}selected{{ end }}>cancelled</option>
+    </select>
+  </div>
+  <div style="min-width:200px">
+    <label for="f-action">Action</label>
+    {{ $cur := .Filters.ActionID }}
+    <select name="action" id="f-action">
+      <option value="" {{ if eq $cur "" }}selected{{ end }}>any</option>
+      {{ range .ActionIDs }}<option value="{{ . }}" {{ if eq . $cur }}selected{{ end }}>{{ . }}</option>{{ end }}
+    </select>
+  </div>
+  <div style="flex:1;min-width:220px">
+    <label for="f-q">Search</label>
+    <input type="search" name="q" id="f-q" value="{{ .Filters.Search }}" placeholder="action label, username, args…">
+  </div>
+  <div style="min-width:90px">
+    <label for="f-ps">Per page</label>
+    {{ $ps := .Filters.PageSize }}
+    <select name="page_size" id="f-ps">
+      <option value="25"  {{ if eq $ps 25  }}selected{{ end }}>25</option>
+      <option value="50"  {{ if eq $ps 50  }}selected{{ end }}>50</option>
+      <option value="100" {{ if eq $ps 100 }}selected{{ end }}>100</option>
+      <option value="200" {{ if eq $ps 200 }}selected{{ end }}>200</option>
+    </select>
+  </div>
+  <div style="display:flex;gap:6px">
+    <button class="btn btn-primary" type="submit">Filter</button>
+    <a href="/tasks" class="btn btn-ghost">Clear</a>
+  </div>
+</form>
+
+<div class="panel">
+  <div class="panel-body" style="padding:0;overflow:auto">
+    <table class="table">
+      <thead>
+        <tr>
+          <th style="width:60px">ID</th>
+          <th style="width:90px">Status</th>
+          <th>Action</th>
+          <th>Scope</th>
+          <th>By</th>
+          <th>Started</th>
+          <th>Took</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {{ if .Tasks }}
+        {{ range .Tasks }}
+          <tr>
+            <td><a href="/tasks/{{ .ID }}" class="mono tabular">#{{ .ID }}</a></td>
+            <td>
+              {{ if eq .Status "running"        }}<span class="pill pill-info"><span class="dot dot-running"></span> running</span>
+              {{ else if eq .Status "queued"    }}<span class="pill pill-info"><span class="dot dot-info"></span> queued</span>
+              {{ else if eq .Status "success"   }}<span class="pill pill-ok"><span class="dot dot-ok"></span> success</span>
+              {{ else if eq .Status "cancelled" }}<span class="pill pill-warn"><span class="dot dot-warn"></span> cancelled</span>
+              {{ else if eq .Status "error"     }}<span class="pill pill-bad"><span class="dot dot-bad"></span> error</span>
+              {{ else                           }}<span class="pill"><span class="dot dot-idle"></span> {{ .Status }}</span>
+              {{ end }}
+            </td>
+            <td>
+              <a href="/tasks/{{ .ID }}" style="color:inherit">{{ .ActionLabel }}</a>
+              <div class="muted mono" style="font-size:11px">{{ .ActionID }}</div>
+            </td>
+            <td class="mono" style="font-size:12px">{{ taskScope .ActionID .ArgsJSON }}</td>
+            <td class="muted">{{ .Username }}</td>
+            <td class="muted tabular" style="font-size:12px">{{ if .StartedAt }}{{ timeAgo (deref .StartedAt) }}{{ else }}{{ timeAgo .CreatedAt }}{{ end }}</td>
+            <td class="muted tabular" style="font-size:12px">{{ taskDuration .StartedAt .EndedAt }}</td>
+            <td style="text-align:right;white-space:nowrap">
+              {{ if or (eq .Status "running") (eq .Status "queued") }}
+                <form method="post" action="/tasks/cancel/{{ .ID }}" style="display:inline" onsubmit="return confirm('Cancel task #{{ .ID }}?')">
+                  <button class="btn btn-sm btn-ghost" type="submit" title="Cancel">cancel</button>
+                </form>
+              {{ else }}
+                <form method="post" action="/tasks/replay/{{ .ID }}" style="display:inline" onsubmit="return confirm('Replay task #{{ .ID }} with the same args?')">
+                  <button class="btn btn-sm btn-ghost" type="submit" title="Re-run with same args">replay</button>
+                </form>
+              {{ end }}
+            </td>
+          </tr>
+        {{ end }}
+      {{ else }}
+        <tr><td colspan="8" class="muted" style="padding:20px;text-align:center">No tasks match these filters.</td></tr>
+      {{ end }}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{{ if gt .TotalPages 1 }}
+<nav style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+  <span class="muted tabular" style="font-size:12px">Page {{ .Filters.Page }} of {{ .TotalPages }} · {{ .Total }} task{{ if ne .Total 1 }}s{{ end }}</span>
+  <div style="display:flex;gap:6px">
+    {{ $base := pageURLBase .Filters }}
+    {{ if gt .Filters.Page 1 }}
+      <a class="btn btn-sm" href="{{ $base }}page=1">« first</a>
+      <a class="btn btn-sm" href="{{ $base }}page={{ sub .Filters.Page 1 }}">‹ prev</a>
+    {{ else }}
+      <span class="btn btn-sm" style="opacity:.5;cursor:default">« first</span>
+      <span class="btn btn-sm" style="opacity:.5;cursor:default">‹ prev</span>
+    {{ end }}
+    {{ if lt .Filters.Page .TotalPages }}
+      <a class="btn btn-sm" href="{{ $base }}page={{ add .Filters.Page 1 }}">next ›</a>
+      <a class="btn btn-sm" href="{{ $base }}page={{ .TotalPages }}">last »</a>
+    {{ else }}
+      <span class="btn btn-sm" style="opacity:.5;cursor:default">next ›</span>
+      <span class="btn btn-sm" style="opacity:.5;cursor:default">last »</span>
+    {{ end }}
+  </div>
+</nav>
 {{ end }}
+
 {{ template "footer" . }}{{ end }}

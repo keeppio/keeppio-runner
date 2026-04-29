@@ -16,10 +16,10 @@ import (
 	"github.com/keeppio/keeppio-runner/internal"
 )
 
-//go:embed templates/*
+//go:embed all:templates
 var tplFS embed.FS
 
-//go:embed static/*
+//go:embed all:static
 var staticFS embed.FS
 
 func main() {

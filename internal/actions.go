@@ -253,6 +253,26 @@ func ReadDeployPubkey(repo, env string) string {
 	return ""
 }
 
+// ReadServiceVersions returns the `service_versions:` map from a
+// tenant's host_vars/<slug>/vars.yml — the pinned image tags written
+// by the `tenant-version` playbook. Returns an empty map when the
+// file or key is absent (e.g. tenants on sandbox/staging that track
+// `main`). Cheap (no SSH); reads off the local repo checkout.
+func ReadServiceVersions(repo, env, slug string) map[string]string {
+	path := filepath.Join(repo, "inventories", env, "host_vars", slug, "vars.yml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		ServiceVersions map[string]string `yaml:"service_versions"`
+	}
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil
+	}
+	return doc.ServiceVersions
+}
+
 // ReadInventoryTree returns every group in the env's hosts.yml. Used
 // by the inventory page (browse) and by the per-field source resolver.
 func ReadInventoryTree(repo, env string) (map[string]HostGroup, error) {

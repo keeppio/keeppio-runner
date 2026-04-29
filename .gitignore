@@ -4,3 +4,8 @@
 *.log
 .idea/
 .vscode/
+
+# Local Tailwind CLI binary — downloaded by scripts/build-frontend.sh.
+# Generated static/app.css and static/vendor/htmx.min.js stay committed
+# so go:embed works on fresh checkouts without the frontend toolchain.
+/bin/

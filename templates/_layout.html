@@ -3,165 +3,270 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>{{ .Env }} · keeppio-runner</title>
-  <!-- Set the dark class BEFORE Tailwind loads so first paint is right.
-       Preference order: explicit user choice (localStorage) → OS prefers-color-scheme. -->
+  <link rel="icon" href="/static/img/keepp-icon.svg" type="image/svg+xml">
   <script>
     (function() {
       var pref = localStorage.getItem('theme');
-      var dark = pref ? pref === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var dark = pref ? pref === 'dark' : true;
       if (dark) document.documentElement.classList.add('dark');
     })();
   </script>
-  <script>tailwind.config = { darkMode: 'class' };</script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
-  <style>
-    body { font-family: ui-sans-serif, system-ui, sans-serif; }
-    pre.log { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
-    /* Branded background — fixed so it doesn't tile on long pages, very
-       low opacity so content stays readable. ::before lets us tint the
-       image without affecting content opacity. ::after sits above the
-       background and below the content; in production it's a faint
-       red veil so an operator working in production is unmistakably aware. */
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background: url('/static/background.png') center/cover no-repeat;
-      opacity: 0.08;
-      pointer-events: none;
-      z-index: 0;
-    }
-    .dark body::before { opacity: 0.04; }
-    {{ if eq .Env "production" }}
-    body { background-color: rgba(255, 230, 230, 1); }
-    .dark body { background-color: #1a0808 !important; }
-    body::after {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background: rgba(220, 38, 38, 0.08);
-      pointer-events: none;
-      z-index: 0;
-    }
-    .dark body::after { background: rgba(220, 38, 38, 0.18); }
-    {{ else if eq .Env "staging" }}
-    body { background-color: rgba(255, 247, 230, 1); }
-    .dark body { background-color: #1a1208 !important; }
-    body::after {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background: rgba(217, 119, 6, 0.06);
-      pointer-events: none;
-      z-index: 0;
-    }
-    .dark body::after { background: rgba(217, 119, 6, 0.14); }
-    {{ else if eq .Env "sandbox" }}
-    body { background-color: rgba(232, 247, 232, 1); }
-    .dark body { background-color: #08160a !important; }
-    body::after {
-      content: "";
-      position: fixed;
-      inset: 0;
-      background: rgba(22, 163, 74, 0.06);
-      pointer-events: none;
-      z-index: 0;
-    }
-    .dark body::after { background: rgba(22, 163, 74, 0.12); }
-    {{ end }}
-    main, header { position: relative; z-index: 1; }
-
-    /* Dark-mode overrides for the Tailwind utilities we use across
-       templates. Done via raw CSS instead of editing every template
-       because the Tailwind CDN's `dark:` variant requires touching
-       every class — and we have ~10 templates worth. */
-    .dark .bg-white            { background-color: #18181b; }
-    .dark .bg-zinc-50          { background-color: #27272a; }
-    .dark .bg-zinc-100         { background-color: #3f3f46; }
-    .dark .bg-zinc-900         { background-color: #09090b; }
-    .dark .text-zinc-500       { color: #a1a1aa; }
-    .dark .text-zinc-700       { color: #d4d4d8; }
-    .dark .text-zinc-900       { color: #f4f4f5; }
-    .dark .text-zinc-400       { color: #a1a1aa; }
-    .dark .border              { border-color: #3f3f46; }
-    .dark .border-t            { border-top-color: #3f3f46; }
-    .dark .border-b            { border-bottom-color: #3f3f46; }
-    .dark .hover\:bg-zinc-50:hover { background-color: #27272a; }
-    .dark .hover\:bg-blue-50:hover { background-color: #172554; }
-    .dark .hover\:bg-red-50:hover  { background-color: #450a0a; }
-    .dark .hover\:bg-green-50:hover{ background-color: #052e16; }
-    .dark .hover\:bg-amber-50:hover{ background-color: #451a03; }
-    .dark .hover\:border-blue-300:hover { border-color: #1e40af; }
-    .dark .hover\:border-red-300:hover  { border-color: #991b1b; }
-    .dark .hover\:text-zinc-900:hover { color: #f4f4f5; }
-    .dark a.text-blue-600       { color: #60a5fa; }
-    .dark .text-emerald-600     { color: #34d399; }
-    .dark .text-red-600         { color: #f87171; }
-    .dark .text-amber-600       { color: #fbbf24; }
-    .dark .bg-zinc-300          { background-color: #52525b; }
-    .dark .bg-emerald-500       { background-color: #16a34a; }
-    .dark .bg-amber-100         { background-color: #451a03; }
-    .dark .text-amber-800       { color: #fbbf24; }
-    .dark .bg-emerald-100       { background-color: #052e16; }
-    .dark .text-emerald-800     { color: #34d399; }
-    .dark .bg-red-100           { background-color: #450a0a; }
-    .dark .text-red-800         { color: #f87171; }
-    .dark .bg-green-100         { background-color: #052e16; }
-    .dark .text-green-800       { color: #34d399; }
-    /* Form inputs */
-    .dark input, .dark textarea, .dark select {
-      background-color: #18181b; color: #f4f4f5; border-color: #3f3f46;
-    }
-    .dark input::placeholder { color: #71717a; }
-    /* Code blocks: log already dark; keep that, but soft-darken inline pre */
-    .dark pre.bg-zinc-50 { background-color: #18181b; color: #e4e4e7; }
-  </style>
+  <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/static/vendor/htmx.min.js"></script>
+  <script defer src="/static/js/console.js"></script>
+  <script defer src="/static/js/keys.js"></script>
 </head>
-<body class="bg-zinc-50 text-zinc-900 min-h-screen dark:text-zinc-100">
-  <header class="border-b bg-white dark:bg-zinc-900 dark:border-zinc-800">
-    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <a href="/" class="font-semibold">keeppio-runner</a>
-        <span class="text-xs px-2 py-0.5 rounded
-              {{ if eq .Env "production" }}bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300{{
-              else if eq .Env "staging" }}bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300{{
-              else if eq .Env "sandbox" }}bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300{{
-              else }}bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300{{ end }}">{{ .Env }}</span>
-      </div>
-      <nav class="flex items-center gap-4 text-sm">
-        <a href="/" class="hover:underline">Inventory</a>
-        <a href="/tasks" class="hover:underline">Tasks</a>
-        <a href="/settings" class="hover:underline">Settings</a>
-        <form action="/logout" method="post" class="inline">
-          <button class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">Sign out</button>
-        </form>
-        <button id="theme-toggle" type="button" aria-label="Toggle dark mode"
-                class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100 text-base leading-none px-1"
-                title="Toggle dark mode">
-          <span class="dark:hidden">🌙</span>
-          <span class="hidden dark:inline">☀️</span>
+<body{{ with .Selected }} data-scope="{{ . }}"{{ end }}>
+  <div class="app-shell">
+    <header class="topbar" data-env="{{ .Env }}">
+      <button class="btn btn-ghost btn-icon hamburger" type="button" data-action="toggle-drawer" aria-label="Toggle navigation">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <a href="/" class="flex items-center gap-2 shrink-0" style="text-decoration:none;color:inherit">
+        <img src="/static/img/keepp-logo-white.svg" alt="Keepp" style="height:18px;width:auto;display:block">
+      </a>
+      <span class="topbar-divider"></span>
+      <span style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;opacity:.92">{{ .Env }}</span>
+      <span class="ml-auto" style="margin-left:auto"></span>
+      <button class="btn btn-ghost btn-sm" type="button" data-action="open-cmdk" title="Search resources (⌘K)" aria-label="Search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <kbd style="background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.25);color:inherit">⌘K</kbd>
+      </button>
+      <button class="btn btn-ghost btn-icon btn-sm" type="button" data-action="toggle-theme" title="Toggle theme" aria-label="Toggle theme">
+        <svg class="theme-icon-when-dark" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="theme-icon-when-light" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32 1.41-1.41"/></svg>
+      </button>
+      <span class="topbar-divider"></span>
+      {{ with .User }}<span style="font-size:12px;opacity:.92">{{ . }}</span>{{ end }}
+      <form action="/logout" method="post" style="margin:0">
+        <button class="btn btn-ghost btn-sm" type="submit" title="Sign out" aria-label="Sign out">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
         </button>
-      </nav>
-    </div>
-  </header>
-  <main class="max-w-5xl mx-auto px-4 py-6">
-  <script>
-    (function() {
-      var btn = document.getElementById('theme-toggle');
-      if (!btn) return;
-      btn.addEventListener('click', function() {
-        var dark = document.documentElement.classList.toggle('dark');
-        localStorage.setItem('theme', dark ? 'dark' : 'light');
-      });
-    })();
-  </script>
+      </form>
+    </header>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="tree" id="resource-tree">
+        {{ if .Tree }}
+          {{ template "tree-node" .Tree }}
+        {{ else }}
+          <div class="tree-node" data-expanded="true">
+            <div class="tree-row" aria-current="true">
+              <span class="tree-caret"></span>
+              <span class="tree-icon">{{ template "tree-icon" "globe" }}</span>
+              <span class="tree-label" style="font-weight:600;text-transform:uppercase;letter-spacing:.04em;font-size:11px">{{ .Env }}</span>
+            </div>
+          </div>
+        {{ end }}
+      </div>
+      <div style="height:1px;background:var(--color-line);margin:6px 10px"></div>
+      <div class="tree" style="padding-top:0">
+        <a href="/tasks" class="tree-node" style="display:block;text-decoration:none">
+          <div class="tree-row"{{ if eq (printf "%v" .NavSection) "tasks" }} aria-current="true"{{ end }}>
+            <span class="tree-caret"></span>
+            <span class="tree-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            </span>
+            <span class="tree-label">Tasks</span>
+          </div>
+        </a>
+        <a href="/settings" class="tree-node" style="display:block;text-decoration:none">
+          <div class="tree-row"{{ if eq (printf "%v" .NavSection) "settings" }} aria-current="true"{{ end }}>
+            <span class="tree-caret"></span>
+            <span class="tree-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </span>
+            <span class="tree-label">Settings</span>
+          </div>
+        </a>
+      </div>
+    </aside>
+
+    <main class="main">
 {{ end }}
 
 {{ define "footer" }}
-  </main>
+    </main>
+
+    <section class="console" data-collapsed="false" id="console">
+      <div class="console-header">
+        <div class="console-tabs" id="console-tabs">
+          <span class="console-tab" aria-current="true"><span class="dot dot-idle"></span><span class="muted">Loading…</span></span>
+        </div>
+        <div class="console-controls">
+          <button class="btn btn-ghost btn-icon btn-sm" type="button" data-action="toggle-console-scope" id="console-scope-btn" title="Toggle scope filter (currently scoped)" aria-label="Toggle scope filter">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          </button>
+          <a href="/tasks" class="btn btn-ghost btn-sm" title="Open full task history">All →</a>
+          <button class="btn btn-ghost btn-icon btn-sm" type="button" data-action="toggle-console" title="Collapse" aria-label="Collapse console">
+            <svg class="console-icon-collapse" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+            <svg class="console-icon-expand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:none"><path d="m6 15 6-6 6 6"/></svg>
+          </button>
+          <button class="btn btn-ghost btn-icon btn-sm" type="button" data-action="close-console-mobile" title="Close" aria-label="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="console-body">
+        <div class="console-meta" id="console-meta">
+          <span class="muted">Tasks for:</span>
+          <span class="pill" id="console-scope-label">all</span>
+          <span class="muted">·</span>
+          <span id="console-summary" class="muted">select a task</span>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm" type="button" id="console-args-toggle" title="Show parameters">params</button>
+          </span>
+        </div>
+        <div id="console-args" class="surface" style="display:none;padding:10px 14px;margin:0 14px 0;font-size:12px;border-radius:0;border-left:none;border-right:none;border-top:none"></div>
+        <pre class="console-log" id="console-log" aria-live="polite">No tasks to display.</pre>
+      </div>
+    </section>
+
+    <button class="fab" type="button" data-action="open-console-mobile" aria-label="Open console">
+      <span class="dot dot-idle" id="fab-dot"></span>
+      <span>Console</span>
+    </button>
+
+    <div class="drawer-backdrop" data-action="close-drawer" aria-hidden="true"></div>
+
+    <div id="modal-root" class="modal-backdrop" style="display:none" data-action="close-modal">
+      <div class="modal" id="modal-content" data-stop></div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var d = document, b = d.body, h = d.documentElement;
+
+      // Restore persisted UI state.
+      try {
+        if (localStorage.getItem('console-collapsed') === 'true') {
+          var c0 = d.getElementById('console');
+          if (c0) c0.setAttribute('data-collapsed', 'true');
+        }
+      } catch (e) {}
+
+      function syncThemeIcons() {
+        var dark = h.classList.contains('dark');
+        d.querySelectorAll('.theme-icon-when-dark').forEach(function(el) { el.style.display = dark ? '' : 'none'; });
+        d.querySelectorAll('.theme-icon-when-light').forEach(function(el) { el.style.display = dark ? 'none' : ''; });
+      }
+      function syncConsoleIcons() {
+        var c = d.getElementById('console'); if (!c) return;
+        var collapsed = c.getAttribute('data-collapsed') === 'true';
+        var col = c.querySelector('.console-icon-collapse');
+        var exp = c.querySelector('.console-icon-expand');
+        if (col && exp) { col.style.display = collapsed ? 'none' : ''; exp.style.display = collapsed ? '' : 'none'; }
+      }
+      syncThemeIcons();
+      syncConsoleIcons();
+
+      d.addEventListener('click', function(e) {
+        var t = e.target.closest('[data-action]');
+        if (!t) return;
+        var a = t.getAttribute('data-action');
+        if (a === 'toggle-theme') {
+          var dark = h.classList.toggle('dark');
+          try { localStorage.setItem('theme', dark ? 'dark' : 'light'); } catch (_) {}
+          syncThemeIcons();
+        } else if (a === 'toggle-drawer') {
+          b.dataset.drawer = b.dataset.drawer === 'open' ? '' : 'open';
+        } else if (a === 'close-drawer') {
+          b.dataset.drawer = '';
+        } else if (a === 'open-console-mobile') {
+          b.dataset.console = 'open';
+        } else if (a === 'close-console-mobile') {
+          b.dataset.console = '';
+        } else if (a === 'toggle-console') {
+          var c = d.getElementById('console'); if (!c) return;
+          var cur = c.getAttribute('data-collapsed') === 'true';
+          c.setAttribute('data-collapsed', cur ? 'false' : 'true');
+          try { localStorage.setItem('console-collapsed', cur ? 'false' : 'true'); } catch (_) {}
+          syncConsoleIcons();
+        }
+        // The palette / shortcut handlers live in /static/js/keys.js
+        // and listen for `data-action="open-cmdk"` clicks themselves.
+      });
+
+      // Esc closes overlays in priority order: modal > drawer > mobile console.
+      d.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        if (b.dataset.modal === 'open') { b.dataset.modal = ''; e.preventDefault(); return; }
+        if (b.dataset.drawer === 'open') { b.dataset.drawer = ''; e.preventDefault(); return; }
+        if (b.dataset.console === 'open') { b.dataset.console = ''; e.preventDefault(); return; }
+      });
+
+      // Tree caret toggle (vanilla, no htmx needed for static expand/collapse).
+      d.addEventListener('click', function(e) {
+        var caret = e.target.closest('.tree-caret');
+        if (!caret) return;
+        var node = caret.closest('.tree-node');
+        if (!node || !node.querySelector(':scope > .tree-children')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var isOpen = node.getAttribute('data-expanded') === 'true';
+        node.setAttribute('data-expanded', isOpen ? 'false' : 'true');
+      });
+
+      // ---- Modal ----
+      var modalRoot = d.getElementById('modal-root');
+      var modalContent = d.getElementById('modal-content');
+      function openModal() {
+        if (!modalRoot) return;
+        modalRoot.style.display = 'flex';
+        b.dataset.modal = 'open';
+        // Focus first focusable in the freshly-rendered fragment.
+        setTimeout(function(){
+          var f = modalContent.querySelector('input,select,textarea,button:not([disabled])');
+          if (f) try { f.focus(); } catch (_) {}
+        }, 30);
+      }
+      function closeModal() {
+        if (!modalRoot) return;
+        modalRoot.style.display = 'none';
+        b.dataset.modal = '';
+        modalContent.innerHTML = '';
+      }
+      d.addEventListener('click', function(e) {
+        if (e.target.closest('[data-action="close-modal"]') && !e.target.closest('[data-stop]')) {
+          closeModal();
+          return;
+        }
+        // Action toolbar buttons / dropdown items with hx-get open the
+        // modal (HTMX handles the fetch + swap; we just toggle visibility).
+        var trigger = e.target.closest('[data-modal-open]');
+        if (trigger && e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          e.preventDefault();
+          var url = trigger.getAttribute('data-modal-open');
+          if (window.htmx) {
+            htmx.ajax('GET', url, { target: '#modal-content', swap: 'innerHTML' });
+          } else {
+            window.location.href = url.replace(/[?&]modal=1/, '');
+          }
+        }
+      });
+      // Whenever HTMX swaps content into the modal, show it.
+      d.body.addEventListener('htmx:afterSwap', function(e) {
+        if (e.detail && e.detail.target && e.detail.target.id === 'modal-content') {
+          openModal();
+        }
+      });
+      // Submitting from the modal triggers `keeppio:task-started` on
+      // success (server emits HX-Trigger). Listen here, close the modal,
+      // and broadcast a same-name DOM event for the bottom console
+      // (phase 6 wires it up).
+      d.body.addEventListener('keeppio:task-started', function(e) {
+        var detail = e.detail;
+        closeModal();
+        // Light up the FAB dot so mobile users see something happened.
+        var dot = d.getElementById('fab-dot');
+        if (dot) { dot.classList.remove('dot-idle'); dot.classList.add('dot-running'); }
+        d.dispatchEvent(new CustomEvent('runner:task-started', { detail: detail }));
+      });
+    })();
+  </script>
 </body>
 </html>
 {{ end }}

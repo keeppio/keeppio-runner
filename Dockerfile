@@ -1,3 +1,29 @@
+# ─── frontend builder ──────────────────────────────────────────────────
+# Compiles frontend/app.css → static/app.css using the Tailwind v4
+# standalone CLI (no Node toolchain). Also vendors htmx so the runtime
+# image carries no third-party CDN dependencies.
+FROM alpine:3.20 AS frontend
+WORKDIR /src
+ARG TAILWIND_VERSION=v4.2.4
+ARG HTMX_VERSION=2.0.4
+RUN apk add --no-cache curl ca-certificates \
+ && arch="$(uname -m)"; \
+    case "$arch" in \
+      aarch64) asset="tailwindcss-linux-arm64-musl" ;; \
+      x86_64)  asset="tailwindcss-linux-x64-musl" ;; \
+      *) echo "unsupported arch: $arch"; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /usr/local/bin/tailwindcss \
+      "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/${asset}" \
+ && chmod +x /usr/local/bin/tailwindcss
+COPY frontend ./frontend
+COPY templates ./templates
+COPY static ./static
+RUN tailwindcss -i frontend/app.css -o static/app.css --minify
+RUN mkdir -p static/vendor \
+ && curl -fsSL -o static/vendor/htmx.min.js \
+      "https://unpkg.com/htmx.org@${HTMX_VERSION}/dist/htmx.min.js"
+
 # ─── builder ───────────────────────────────────────────────────────────
 FROM golang:1.22-alpine AS builder
 WORKDIR /src
@@ -5,6 +31,9 @@ RUN apk add --no-cache git
 COPY go.mod go.sum* ./
 RUN go mod download
 COPY . .
+# Overlay the generated frontend assets so go:embed picks them up.
+COPY --from=frontend /src/static/app.css ./static/app.css
+COPY --from=frontend /src/static/vendor ./static/vendor
 # Static build so the image only needs ansible + git + bash at runtime.
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o /out/keeppio-runner .
 

@@ -27,7 +27,10 @@ import (
 // handleAPITenantsRoute is the bearer-token entry. requireAPIAuth has
 // already validated the token before this runs.
 func (s *Server) handleAPITenantsRoute(w http.ResponseWriter, r *http.Request) {
-	s.dispatchTenants(w, r, "/api/tenants/", "api:"+currentAPITokenName(r))
+	// API callers (external automation) bypass the UI cache so they
+	// always see live state — they're typically polling for "is this
+	// container running yet" and stale answers there are confusing.
+	s.dispatchTenants(w, r, "/api/tenants/", "api:"+currentAPITokenName(r), false)
 }
 
 // handleUITenantsRoute is the cookie-auth entry, used by the page's
@@ -37,14 +40,16 @@ func (s *Server) handleUITenantsRoute(w http.ResponseWriter, r *http.Request) {
 	if user == "" {
 		user = "ui"
 	}
-	s.dispatchTenants(w, r, "/ui/tenants/", user)
+	s.dispatchTenants(w, r, "/ui/tenants/", user, true)
 }
 
 // dispatchTenants splits the URL path into <slug>/<rest> and routes to
 // the right sub-handler. `who` is what gets recorded in the audit row
 // when an action gets enqueued (so we can tell apart UI clicks vs API
-// calls in /tasks).
-func (s *Server) dispatchTenants(w http.ResponseWriter, r *http.Request, prefix, who string) {
+// calls in /tasks). `cached` is true for the cookie-auth UI path —
+// container/orphan list reads short-circuit through s.state with a
+// 30 s TTL when set.
+func (s *Server) dispatchTenants(w http.ResponseWriter, r *http.Request, prefix, who string, cached bool) {
 	rest := strings.TrimPrefix(r.URL.Path, prefix)
 	parts := strings.SplitN(rest, "/", 4)
 	if len(parts) < 2 || parts[0] == "" {
@@ -59,7 +64,7 @@ func (s *Server) dispatchTenants(w http.ResponseWriter, r *http.Request, prefix,
 		// /<slug>/containers/disabled       → list persisted-off names
 		// /<slug>/containers/<name>/toggle  → toggle
 		if len(parts) == 2 {
-			s.handleTenantContainersList(w, r, slug)
+			s.handleTenantContainersList(w, r, slug, cached)
 			return
 		}
 		if len(parts) == 3 && parts[2] == "disabled" {
@@ -67,6 +72,9 @@ func (s *Server) dispatchTenants(w http.ResponseWriter, r *http.Request, prefix,
 			return
 		}
 		if len(parts) == 4 && parts[3] == "toggle" {
+			// Toggle mutates state; invalidate so the next list read
+			// observes the new running set.
+			s.state.Invalidate("containers:" + slug)
 			s.handleTenantContainerToggle(w, r, slug, parts[2], who)
 			return
 		}
@@ -162,19 +170,40 @@ func (s *Server) handleTenantStatusBatch(w http.ResponseWriter, r *http.Request)
 // Containers
 // ──────────────────────────────────────────────────────────────────────
 
-func (s *Server) handleTenantContainersList(w http.ResponseWriter, r *http.Request, slug string) {
+func (s *Server) handleTenantContainersList(w http.ResponseWriter, r *http.Request, slug string, cached bool) {
 	if r.Method != http.MethodGet {
 		apiErr(w, http.StatusMethodNotAllowed, "GET only")
 		return
+	}
+	fresh := r.URL.Query().Get("fresh") == "1"
+	cacheKey := "containers:" + slug
+	if cached && !fresh {
+		if v, at, ok := s.state.Get(cacheKey); ok {
+			apiJSON(w, map[string]any{
+				"slug":          slug,
+				"containers":    v,
+				"fetched_at":    at.UnixMilli(),
+				"cache_age_ms":  time.Since(at).Milliseconds(),
+				"from_cache":    true,
+			})
+			return
+		}
 	}
 	out, err := ListTenantContainers(r.Context(), s.cfg, slug)
 	if err != nil {
 		apiErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
+	at := time.Now()
+	if cached {
+		at = s.state.Set(cacheKey, out)
+	}
 	apiJSON(w, map[string]any{
-		"slug":       slug,
-		"containers": out,
+		"slug":         slug,
+		"containers":   out,
+		"fetched_at":   at.UnixMilli(),
+		"cache_age_ms": 0,
+		"from_cache":   false,
 	})
 }
 

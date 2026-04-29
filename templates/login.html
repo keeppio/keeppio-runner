@@ -3,47 +3,36 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Sign in · keeppio-runner ({{ .Env }})</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    body::before {
-      content: ""; position: fixed; inset: 0;
-      background: url('/static/background.png') center/cover no-repeat;
-      opacity: 0.08; pointer-events: none; z-index: 0;
-    }
-    {{ if eq .Env "production" }}
-    body { background-color: rgba(255, 230, 230, 1); }
-    body::after {
-      content: ""; position: fixed; inset: 0;
-      background: rgba(220, 38, 38, 0.08); pointer-events: none; z-index: 0;
-    }
-    {{ else if eq .Env "staging" }}
-    body { background-color: rgba(255, 247, 230, 1); }
-    body::after {
-      content: ""; position: fixed; inset: 0;
-      background: rgba(217, 119, 6, 0.06); pointer-events: none; z-index: 0;
-    }
-    {{ else if eq .Env "sandbox" }}
-    body { background-color: rgba(232, 247, 232, 1); }
-    body::after {
-      content: ""; position: fixed; inset: 0;
-      background: rgba(22, 163, 74, 0.06); pointer-events: none; z-index: 0;
-    }
-    {{ end }}
-    form { position: relative; z-index: 1; }
-  </style>
+  <link rel="icon" href="/static/img/keepp-icon.svg" type="image/svg+xml">
+  <script>
+    (function() {
+      var pref = localStorage.getItem('theme');
+      var dark = pref ? pref === 'dark' : true;
+      if (dark) document.documentElement.classList.add('dark');
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/app.css">
 </head>
-<body class="bg-zinc-50 min-h-screen flex items-center justify-center">
-  <form action="/login.submit" method="post" class="bg-white border rounded-lg p-6 w-80 shadow-sm">
-    <h1 class="text-lg font-semibold mb-1">keeppio-runner</h1>
-    <p class="text-sm text-zinc-500 mb-4">{{ .Env }}</p>
-    {{ if .Error }}<div class="text-red-600 text-sm mb-3">{{ .Error }}</div>{{ end }}
-    <label class="block text-sm font-medium mb-1" for="username">Username</label>
-    <input id="username" name="username" value="admin" class="w-full border rounded px-2 py-1 mb-3" autofocus>
-    <label class="block text-sm font-medium mb-1" for="password">Password</label>
-    <input id="password" name="password" type="password" class="w-full border rounded px-2 py-1 mb-4">
-    <button class="w-full bg-zinc-900 text-white rounded py-2 text-sm font-medium hover:bg-zinc-800">Sign in</button>
+<body class="login-shell">
+  <form action="/login.submit" method="post" class="login-card" autocomplete="on">
+    <div class="login-env-band" data-env="{{ .Env }}"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+      <img src="/static/img/keepp-icon.svg" alt="" style="height:28px;width:28px;filter:invert(1)">
+      <div>
+        <div style="font-size:15px;font-weight:600;letter-spacing:-0.01em">keeppio-runner</div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--color-ink-3)">{{ .Env }}</div>
+      </div>
+    </div>
+    {{ if .Error }}
+    <div style="margin-bottom:12px;padding:8px 10px;border-radius:var(--radius-2);background:var(--color-bad-soft);color:var(--color-bad);font-size:12px">{{ .Error }}</div>
+    {{ end }}
+    <label for="username" style="display:block;margin-bottom:4px">Username</label>
+    <input id="username" name="username" value="admin" autofocus autocomplete="username" style="margin-bottom:12px">
+    <label for="password" style="display:block;margin-bottom:4px">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" style="margin-bottom:18px">
+    <button class="btn btn-primary" type="submit" style="width:100%;height:36px;justify-content:center">Sign in</button>
   </form>
 </body>
 </html>

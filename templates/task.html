@@ -1,58 +1,79 @@
 {{ define "task.html" }}{{ template "header" . }}
-<div class="mb-4">
-  <a href="/tasks" class="text-sm text-zinc-500 hover:underline">← all tasks</a>
-</div>
 
-<div class="flex items-baseline justify-between mb-4">
-  <h1 class="text-xl font-semibold">#{{ .Task.ID }} · {{ .Task.ActionLabel }}</h1>
-  <span id="status-badge" class="text-xs px-2 py-0.5 rounded {{ statusBadge .Task.Status }}">{{ .Task.Status }}{{ if .Task.ExitCode }} (exit {{ .Task.ExitCode }}){{ end }}</span>
-</div>
-
-<div class="grid grid-cols-2 gap-4 text-sm bg-white border rounded p-4 mb-4">
-  <div><span class="text-zinc-500">Started:</span> {{ if .Task.StartedAt }}{{ timeAgo .Task.StartedAt }}{{ else }}—{{ end }}</div>
-  <div><span class="text-zinc-500">Ended:</span> {{ if .Task.EndedAt }}{{ timeAgo .Task.EndedAt }}{{ else }}—{{ end }}</div>
-  <div><span class="text-zinc-500">By:</span> {{ .Task.Username }}</div>
-  <div><span class="text-zinc-500">Commit:</span> <span class="font-mono">{{ if .Task.CommitHash }}{{ slice .Task.CommitHash 0 7 }}{{ else }}—{{ end }}</span></div>
-  <div class="col-span-2"><span class="text-zinc-500">Args:</span>
-    <pre class="text-xs bg-zinc-50 border rounded p-2 mt-1 overflow-x-auto">{{ jsonPretty .Task.ArgsJSON }}</pre>
+<div class="view-header">
+  <div class="view-title">
+    <a href="/tasks" class="muted" style="font-size:12px;text-decoration:none" title="All tasks">←</a>
+    <span class="mono tabular">#{{ .Task.ID }}</span>
+    <span>·</span>
+    <span>{{ .Task.ActionLabel }}</span>
+    {{ $st := .Task.Status }}
+    {{ if eq $st "running"        }}<span class="pill pill-info"><span class="dot dot-running"></span> running</span>
+    {{ else if eq $st "queued"    }}<span class="pill pill-info"><span class="dot dot-info"></span> queued</span>
+    {{ else if eq $st "success"   }}<span class="pill pill-ok"><span class="dot dot-ok"></span> success</span>
+    {{ else if eq $st "cancelled" }}<span class="pill pill-warn"><span class="dot dot-warn"></span> cancelled</span>
+    {{ else if eq $st "error"     }}<span class="pill pill-bad"><span class="dot dot-bad"></span> error{{ if .Task.ExitCode }} · exit {{ .Task.ExitCode }}{{ end }}</span>
+    {{ else                       }}<span class="pill"><span class="dot dot-idle"></span> {{ $st }}</span>
+    {{ end }}
+  </div>
+  <div class="view-toolbar">
+    {{ if .Live }}
+      <form action="/tasks/cancel/{{ .Task.ID }}" method="post" style="display:inline" onsubmit="return confirm('Cancel task #{{ .Task.ID }}?')">
+        <button class="btn btn-danger" type="submit">Cancel</button>
+      </form>
+    {{ else }}
+      <form action="/tasks/replay/{{ .Task.ID }}" method="post" style="display:inline" onsubmit="return confirm('Replay task #{{ .Task.ID }}?')">
+        <button class="btn" type="submit">↻ Replay</button>
+      </form>
+    {{ end }}
   </div>
 </div>
 
-{{ if .Live }}
-<form action="/tasks/cancel/{{ .Task.ID }}" method="post" class="mb-3">
-  <button class="text-xs px-3 py-1 border rounded hover:bg-red-50 hover:border-red-300">Cancel</button>
-</form>
-{{ else }}
-<form action="/tasks/replay/{{ .Task.ID }}" method="post" class="mb-3"
-      onsubmit="return confirm('Re-run this task with the same args?')">
-  <button class="text-xs px-3 py-1 border rounded hover:bg-blue-50 hover:border-blue-300"
-          title="Enqueue a fresh task using this one's action + args">↻ Replay</button>
-</form>
-{{ end }}
+<div class="panel" style="margin-bottom:14px">
+  <div class="panel-header"><span>Task</span></div>
+  <div class="panel-body">
+    <dl class="kv">
+      <dt>Action</dt><dd>{{ .Task.ActionLabel }} <span class="muted">·</span> <span class="mono">{{ .Task.ActionID }}</span></dd>
+      <dt>By</dt><dd>{{ .Task.Username }}</dd>
+      <dt>Started</dt><dd>{{ if .Task.StartedAt }}{{ timeAgo (deref .Task.StartedAt) }}{{ else }}—{{ end }}</dd>
+      <dt>Ended</dt><dd>{{ if .Task.EndedAt }}{{ timeAgo (deref .Task.EndedAt) }}{{ else }}—{{ end }}</dd>
+      <dt>Took</dt><dd>{{ taskDuration .Task.StartedAt .Task.EndedAt }}</dd>
+      <dt>Commit</dt><dd>{{ if .Task.CommitHash }}<span class="mono">{{ slice .Task.CommitHash 0 7 }}</span>{{ else }}—{{ end }}</dd>
+    </dl>
+  </div>
+</div>
 
-<pre id="log" class="log bg-zinc-900 text-zinc-100 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap">{{ .LogBody }}</pre>
+<div class="panel" style="margin-bottom:14px">
+  <div class="panel-header"><span>Parameters</span></div>
+  <div class="panel-body">
+    <pre class="mono" style="margin:0;white-space:pre-wrap;font-size:12px">{{ jsonPretty .Task.ArgsJSON }}</pre>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-header"><span>Log</span>{{ if .Live }}<span class="pill pill-info"><span class="dot dot-running"></span> tailing</span>{{ end }}</div>
+  <pre id="log" class="log" style="margin:0;border-radius:0 0 var(--radius-2) var(--radius-2);border:none;border-top:1px solid var(--color-line);max-height:60vh">{{ .LogBody }}</pre>
+</div>
 
 {{ if .Live }}
 <script>
 (function() {
-  const log = document.getElementById('log');
-  const badge = document.getElementById('status-badge');
-  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(proto + '//' + location.host + '/ws/tasks/{{ .Task.ID }}');
+  var log = document.getElementById('log');
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws/tasks/{{ .Task.ID }}');
+  function strip(s) { return String(s).replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
   ws.onmessage = function(ev) {
-    let m;
-    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    var m;
+    try { m = JSON.parse(ev.data); } catch (_) { return; }
     if (m.line) {
-      log.appendChild(document.createTextNode(m.line + '\n'));
-      window.scrollTo(0, document.body.scrollHeight);
+      var atBottom = (log.scrollHeight - log.scrollTop - log.clientHeight) < 40;
+      log.appendChild(document.createTextNode(strip(m.line) + '\n'));
+      if (atBottom) log.scrollTop = log.scrollHeight;
     }
-    if (m.status && m.status !== 'running') {
-      badge.textContent = m.status;
-      badge.className = 'text-xs px-2 py-0.5 rounded ' + (
-        m.status === 'success' ? 'bg-green-100 text-green-800' :
-        m.status === 'closed' ? 'bg-zinc-100 text-zinc-800' :
-        'bg-red-100 text-red-800');
-      if (m.status !== 'closed') ws.close();
+    if (m.status && m.status !== 'running' && m.status !== 'queued') {
+      // Reload to pick up the final status pill + the exit code from
+      // the DB, avoiding the need to mirror that logic here.
+      setTimeout(function(){ location.reload(); }, 200);
+      try { ws.close(); } catch (_) {}
     }
   };
 })();

@@ -1,0 +1,514 @@
+{{ define "resource.html" }}
+{{ template "header" . }}
+
+<div class="view-header">
+  <div class="view-title">
+    {{ if eq .ViewType "env-root" }}
+      {{ template "tree-icon" "globe" }}<span>{{ .Env }}</span>
+      <span class="pill">environment</span>
+    {{ else if eq .ViewType "host-server" }}
+      {{ template "tree-icon" "server" }}<span class="mono">{{ .Resource.Name }}</span>
+      <span class="pill">server</span>
+      <span class="muted" style="font-size:12px">· {{ .Resource.Host }}</span>
+    {{ else if eq .ViewType "host-ops" }}
+      {{ template "tree-icon" "tool" }}<span class="mono">{{ .Resource.Name }}</span>
+      <span class="pill">operations</span>
+      <span class="muted" style="font-size:12px">· {{ .Resource.Host }}</span>
+    {{ else if eq .ViewType "tenant" }}
+      {{ template "tree-icon" "tenant" }}<span class="mono">{{ .Resource.Name }}</span>
+      <span class="pill">tenant</span>
+      {{ with .ParentServer }}<span class="muted" style="font-size:12px">on <a href="/r/{{ .Name }}" class="mono" style="color:inherit;text-decoration:underline">{{ .Name }}</a></span>{{ end }}
+      <span id="status-pill" class="pill" style="margin-left:4px"><span class="dot dot-idle"></span> <span class="muted">checking…</span></span>
+    {{ end }}
+  </div>
+  {{ if .Toolbar }}{{ template "action-toolbar" .Toolbar }}{{ end }}
+</div>
+
+{{/* ───────────────── Tabs (per view type) ───────────────── */}}
+{{ $tab := .Tab }}
+{{ if or (eq .ViewType "tenant") (eq .ViewType "host-server") (eq .ViewType "host-ops") }}
+  <nav class="tabs" style="margin-bottom:16px">
+    {{ if eq .ViewType "tenant" }}
+      <a href="?tab=overview"   class="tab"{{ if eq $tab "overview"   }} aria-current="true"{{ end }} style="text-decoration:none">Overview</a>
+      <a href="?tab=domains"    class="tab"{{ if eq $tab "domains"    }} aria-current="true"{{ end }} style="text-decoration:none">Domains</a>
+      <a href="?tab=containers" class="tab"{{ if eq $tab "containers" }} aria-current="true"{{ end }} style="text-decoration:none">Containers</a>
+      <a href="?tab=tasks"      class="tab"{{ if eq $tab "tasks"      }} aria-current="true"{{ end }} style="text-decoration:none">Tasks</a>
+    {{ else if eq .ViewType "host-server" }}
+      <a href="?tab=overview" class="tab"{{ if eq $tab "overview" }} aria-current="true"{{ end }} style="text-decoration:none">Overview</a>
+      <a href="?tab=tenants"  class="tab"{{ if eq $tab "tenants"  }} aria-current="true"{{ end }} style="text-decoration:none">Tenants</a>
+      <a href="?tab=orphans"  class="tab"{{ if eq $tab "orphans"  }} aria-current="true"{{ end }} style="text-decoration:none">Orphan containers</a>
+      <a href="?tab=tasks"    class="tab"{{ if eq $tab "tasks"    }} aria-current="true"{{ end }} style="text-decoration:none">Tasks</a>
+    {{ else }}
+      <a href="?tab=overview" class="tab"{{ if eq $tab "overview" }} aria-current="true"{{ end }} style="text-decoration:none">Overview</a>
+      <a href="?tab=tasks"    class="tab"{{ if eq $tab "tasks"    }} aria-current="true"{{ end }} style="text-decoration:none">Tasks</a>
+    {{ end }}
+  </nav>
+{{ end }}
+
+{{/* ───────────────── Body per ViewType + Tab ───────────────── */}}
+
+{{ if eq .ViewType "env-root" }}
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:16px">
+    <div class="panel"><div class="panel-header"><span>Hosts</span></div><div class="panel-body" style="font-size:24px;font-weight:600;font-variant-numeric:tabular-nums">{{ .Stats.HostCount }}</div></div>
+    <div class="panel"><div class="panel-header"><span>Tenants</span></div><div class="panel-body" style="font-size:24px;font-weight:600;font-variant-numeric:tabular-nums">{{ .Stats.TenantCount }}</div></div>
+    <div class="panel"><div class="panel-header"><span>Servers</span></div><div class="panel-body" style="font-size:24px;font-weight:600;font-variant-numeric:tabular-nums">{{ .Stats.ServerCount }}</div></div>
+    <div class="panel"><div class="panel-header"><span>Ops</span></div><div class="panel-body" style="font-size:24px;font-weight:600;font-variant-numeric:tabular-nums">{{ .Stats.OpsCount }}</div></div>
+  </div>
+  <p class="muted" style="font-size:12px">Pick a resource from the left sidebar to drill in. Recent activity for everything appears in the bottom console.</p>
+
+{{ else if eq .ViewType "host-server" }}
+  {{ if eq .Tab "overview" }}
+    {{ template "panel-connection" .Resource }}
+  {{ else if eq .Tab "tenants" }}
+    {{ template "panel-tenants-on-host" . }}
+  {{ else if eq .Tab "orphans" }}
+    {{ template "panel-orphan-containers" .Resource }}
+  {{ else if eq .Tab "tasks" }}
+    {{ template "panel-tasks-stub" "Recent tasks scoped to this host appear in the bottom console; full history lands in phase 7." }}
+  {{ end }}
+
+{{ else if eq .ViewType "host-ops" }}
+  {{ if eq .Tab "overview" }}
+    {{ template "panel-connection" .Resource }}
+    {{ if .Resource.AllFqdns }}
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-header"><span>Endpoints</span><span class="pill">{{ len .Resource.AllFqdns }}</span></div>
+      <div class="panel-body" style="padding:0">
+        <table class="table">
+          <thead><tr><th>Label</th><th>FQDN</th></tr></thead>
+          <tbody>{{ range .Resource.AllFqdns }}<tr><td><span class="pill pill-mono">{{ .Label }}</span></td><td class="mono">{{ .Fqdn }}</td></tr>{{ end }}</tbody>
+        </table>
+      </div>
+    </div>
+    {{ end }}
+  {{ else if eq .Tab "tasks" }}
+    {{ template "panel-tasks-stub" "Recent tasks scoped to this host appear in the bottom console." }}
+  {{ end }}
+
+{{ else if eq .ViewType "tenant" }}
+  {{ if eq .Tab "overview" }}
+    {{ template "panel-connection" .Resource }}
+    {{ with .ParentServer }}
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-header"><span>Hosting</span></div>
+      <div class="panel-body">
+        <dl class="kv">
+          <dt>On server</dt><dd><a href="/r/{{ .Name }}" class="mono">{{ .Name }}</a> · {{ .Host }}</dd>
+        </dl>
+      </div>
+    </div>
+    {{ end }}
+    {{ if .ServiceVersions }}
+    <div class="panel" style="margin-top:14px">
+      <div class="panel-header">
+        <span>Pinned versions</span>
+        <span class="muted" style="font-size:11px;margin-left:8px">written by tenant-version</span>
+      </div>
+      <div class="panel-body">
+        <dl class="kv">
+          {{ range $svc, $tag := .ServiceVersions }}
+            <dt>{{ $svc }}</dt><dd><span class="pill pill-mono">{{ $tag }}</span></dd>
+          {{ end }}
+        </dl>
+        <p class="muted" style="font-size:11px;margin:10px 0 0">Compare against the running tags shown in the Containers tab. If they differ, run <strong>deploy-current</strong> to apply.</p>
+      </div>
+    </div>
+    {{ end }}
+  {{ else if eq .Tab "domains" }}
+    {{ template "panel-domains" . }}
+  {{ else if eq .Tab "containers" }}
+    {{ template "panel-containers" . }}
+  {{ else if eq .Tab "tasks" }}
+    {{ template "panel-tasks-stub" "Recent tasks for this tenant appear in the bottom console." }}
+  {{ end }}
+
+{{ end }}
+
+{{/* Tenant view loads Kuma status async; status pill auto-updates. */}}
+{{ if eq .ViewType "tenant" }}
+<script>
+(function(){
+  var slug = {{ .Resource.Name }};
+  var pill = document.getElementById('status-pill');
+  if (!pill) return;
+  fetch('/ui/tenants/' + encodeURIComponent(slug) + '/status', {headers:{'Accept':'application/json'}})
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+    .then(function(s){
+      var dot = 'dot-idle', label = 'unknown', cls = 'pill';
+      if (s.error) { dot = 'dot-warn'; label = 'unreachable'; cls = 'pill pill-warn'; }
+      else if (s.total === 0) { dot = 'dot-idle'; label = 'no monitors'; }
+      else if (s.down > 0)    { dot = 'dot-bad';  label = s.down + ' down'; cls = 'pill pill-bad'; }
+      else if (s.pending > 0) { dot = 'dot-warn'; label = s.pending + ' pending'; cls = 'pill pill-warn'; }
+      else                    { dot = 'dot-ok';   label = 'all up · ' + s.up; cls = 'pill pill-ok'; }
+      pill.className = cls;
+      pill.innerHTML = '<span class="dot ' + dot + '"></span> <span>' + label + '</span>';
+    })
+    .catch(function(){
+      pill.className = 'pill pill-warn';
+      pill.innerHTML = '<span class="dot dot-warn"></span> <span>status check failed</span>';
+    });
+})();
+</script>
+{{ end }}
+
+{{ template "footer" . }}
+{{ end }}
+
+{{/* =========================================================
+     Reusable partials
+     ========================================================= */}}
+
+{{ define "panel-connection" }}
+<div class="panel">
+  <div class="panel-header"><span>Connection</span></div>
+  <div class="panel-body">
+    <dl class="kv">
+      <dt>Address</dt><dd>{{ .Host }}</dd>
+      <dt>SSH</dt><dd>{{ .User }}@{{ .Host }}{{ if ne .Port 22 }}:{{ .Port }}{{ end }}</dd>
+      {{ with .PrimaryFqdn }}<dt>FQDN</dt><dd>{{ . }}</dd>{{ end }}
+      <dt>Group</dt><dd><span class="pill pill-mono">{{ .Group }}</span></dd>
+    </dl>
+  </div>
+</div>
+{{ end }}
+
+{{ define "panel-tenants-on-host" }}
+<div class="panel">
+  <div class="panel-header"><span>Tenants</span><span class="pill">{{ len .TenantsOnHost }}</span></div>
+  {{ if .TenantsOnHost }}
+  <div class="panel-body" style="padding:0">
+    <table class="table">
+      <thead><tr><th>Name</th><th>Primary FQDN</th><th style="text-align:right">Domains</th></tr></thead>
+      <tbody>
+        {{ range .TenantsOnHost }}
+        <tr>
+          <td><a href="/r/{{ $.Resource.Name }}/{{ .Name }}" class="mono">{{ .Name }}</a></td>
+          <td class="muted">{{ .PrimaryFqdn }}</td>
+          <td style="text-align:right" class="tabular muted">{{ len .AllFqdns }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ else }}
+  <div class="panel-body muted" style="font-size:12px">No tenants on this host.</div>
+  {{ end }}
+</div>
+{{ end }}
+
+{{ define "panel-orphan-containers" }}
+<div class="panel">
+  <div class="panel-header">
+    <span>Orphan containers</span>
+    <span class="muted tabular" id="orphans-fresh" style="font-size:11px;margin-left:8px"></span>
+    <span style="margin-left:auto"><button class="btn btn-sm" type="button" data-orphan-refresh>Refresh</button></span>
+  </div>
+  <div class="panel-body" id="orphans-body">
+    <span class="muted" style="font-size:12px">Loading…</span>
+  </div>
+</div>
+<script>
+(function(){
+  var server = {{ .Name }};
+  var body = document.getElementById('orphans-body');
+  var fresh = document.getElementById('orphans-fresh');
+  function fmtAge(ms){
+    if (ms < 1000) return 'just now';
+    if (ms < 60000) return Math.floor(ms/1000) + 's ago';
+    return Math.floor(ms/60000) + 'm ago';
+  }
+  function safe(s){ return (s || '').replace(/[<>&"]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];}); }
+  function render(list, fetchedAt){
+    if (fresh && fetchedAt) fresh.textContent = 'as of ' + fmtAge(Date.now() - fetchedAt);
+    if (!list || !list.length) {
+      body.innerHTML = '<span class="muted" style="font-size:12px">No orphan containers.</span>';
+      return;
+    }
+    var rows = list.map(function(c){
+      var name = safe(c.name || c.Name || '');
+      var img  = safe(c.image || c.Image || '');
+      return '<tr>' +
+        '<td class="mono">' + name + '</td>' +
+        '<td class="muted mono" style="font-size:12px">' + img + '</td>' +
+        '<td style="text-align:right"><button class="btn btn-sm btn-danger" data-orphan-delete="' + name + '">Delete</button></td>' +
+        '</tr>';
+    }).join('');
+    body.innerHTML = '<div style="margin:-14px"><table class="table"><thead><tr><th>Container</th><th>Image</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  function load(forceFresh){
+    if (fresh) fresh.textContent = '';
+    body.innerHTML = '<span class="muted" style="font-size:12px">Loading…</span>';
+    var qs = forceFresh ? '?fresh=1' : '';
+    fetch('/ui/servers/' + encodeURIComponent(server) + '/orphan-containers' + qs, {headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+      .then(function(d){ render(d.containers || d || [], d.fetched_at || Date.now()); })
+      .catch(function(e){ body.innerHTML = '<span class="muted">Failed to load: ' + e + '</span>'; });
+  }
+  document.addEventListener('click', function(e){
+    var refresh = e.target.closest('[data-orphan-refresh]');
+    if (refresh) { load(true); return; }
+    var del = e.target.closest('[data-orphan-delete]');
+    if (del) {
+      var name = del.getAttribute('data-orphan-delete');
+      if (!confirm('Delete orphan container "' + name + '"?')) return;
+      del.disabled = true;
+      fetch('/ui/servers/' + encodeURIComponent(server) + '/orphan-containers/' + encodeURIComponent(name) + '/delete', {method:'POST',headers:{'Accept':'application/json'}})
+        .then(function(r){ if (!r.ok) throw r.status; return load(true); })
+        .catch(function(e){ del.disabled = false; alert('Delete failed: ' + e); });
+    }
+  });
+  load(false);
+})();
+</script>
+{{ end }}
+
+{{ define "panel-domains" }}
+<div class="panel">
+  <div class="panel-header">
+    <span>Domains</span>
+    <span class="pill">{{ len .Resource.AllFqdns }}</span>
+    <span style="margin-left:auto;display:flex;gap:6px">
+      <button class="btn btn-sm" type="button" data-domains-bulk="on">Enable all</button>
+      <button class="btn btn-sm btn-danger" type="button" data-domains-bulk="off">Disable all</button>
+    </span>
+  </div>
+  {{ if .Resource.AllFqdns }}
+  <div class="panel-body" style="padding:0">
+    <table class="table">
+      <thead><tr><th>Label</th><th>FQDN</th><th style="text-align:right">Status</th></tr></thead>
+      <tbody>
+        {{ range .Resource.AllFqdns }}
+        {{ $disabled := index $.DisabledDomainsSet .Fqdn }}
+        <tr data-domain-row="{{ .Label }}" data-fqdn="{{ .Fqdn }}">
+          <td><span class="pill pill-mono">{{ .Label }}</span></td>
+          <td class="mono">{{ .Fqdn }}</td>
+          <td style="text-align:right">
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+              <span class="domain-state muted" style="font-size:12px">{{ if $disabled }}disabled{{ else }}enabled{{ end }}</span>
+              <input type="checkbox" class="raw domain-toggle"
+                data-domain-key="{{ .Label }}" {{ if not $disabled }}checked{{ end }}
+                style="width:32px;height:18px;appearance:none;background:{{ if $disabled }}var(--color-bad){{ else }}var(--color-ok){{ end }};border-radius:999px;position:relative;cursor:pointer">
+            </label>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ else }}
+  <div class="panel-body muted" style="font-size:12px">No domains configured.</div>
+  {{ end }}
+</div>
+<script>
+(function(){
+  var slug = {{ .Resource.Name }};
+  function setState(row, on){
+    var pill = row.querySelector('.domain-state');
+    var box  = row.querySelector('.domain-toggle');
+    pill.textContent = on ? 'enabled' : 'disabled';
+    box.checked = on;
+    box.style.background = on ? 'var(--color-ok)' : 'var(--color-bad)';
+  }
+  function toggle(domainKey, on){
+    return fetch('/ui/tenants/' + encodeURIComponent(slug) + '/domains/toggle', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body: JSON.stringify({domain_key: domainKey, state: on ? 'on' : 'off'})
+    }).then(function(r){ if (!r.ok) throw r.status; return r.json(); });
+  }
+  document.addEventListener('change', function(e){
+    var box = e.target.closest('.domain-toggle');
+    if (!box) return;
+    var row = box.closest('[data-domain-row]');
+    var key = box.getAttribute('data-domain-key');
+    var on  = box.checked;
+    box.disabled = true;
+    toggle(key, on)
+      .then(function(){ setState(row, on); })
+      .catch(function(err){ alert('Toggle failed: ' + err); setState(row, !on); })
+      .finally(function(){ box.disabled = false; });
+  });
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest('[data-domains-bulk]');
+    if (!btn) return;
+    var on = btn.getAttribute('data-domains-bulk') === 'on';
+    if (!confirm((on ? 'Enable' : 'Disable') + ' all domains for ' + slug + '?')) return;
+    btn.disabled = true;
+    toggle('all', on)
+      .then(function(){
+        document.querySelectorAll('[data-domain-row]').forEach(function(row){ setState(row, on); });
+      })
+      .catch(function(err){ alert('Bulk toggle failed: ' + err); })
+      .finally(function(){ btn.disabled = false; });
+  });
+})();
+</script>
+{{ end }}
+
+{{ define "panel-containers" }}
+<div class="panel">
+  <div class="panel-header">
+    <span>Containers</span>
+    <span class="muted tabular" id="containers-fresh" style="font-size:11px;margin-left:8px"></span>
+    <span style="margin-left:auto;display:flex;gap:6px">
+      <button class="btn btn-sm" type="button" data-containers-refresh title="Force a fresh SSH read">Refresh</button>
+    </span>
+  </div>
+  <div class="panel-body" id="containers-body">
+    <span class="muted" style="font-size:12px">Loading…</span>
+  </div>
+</div>
+<script>
+(function(){
+  var slug = {{ .Resource.Name }};
+  var body = document.getElementById('containers-body');
+  var fresh = document.getElementById('containers-fresh');
+  function safe(s){ return (s || '').replace(/[<>&"]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];}); }
+  function fmtAge(ms){
+    if (ms < 1000) return 'just now';
+    if (ms < 60000) return Math.floor(ms/1000) + 's ago';
+    return Math.floor(ms/60000) + 'm ago';
+  }
+  function splitImage(img){
+    // ghcr.io/keeppio/keeppio-webapp:abc1234 → {repo:..., tag:'abc1234'}
+    if (!img) return {repo: '', tag: ''};
+    var idx = img.lastIndexOf('@');
+    if (idx > 0) return {repo: img.slice(0, idx), tag: img.slice(idx+1, idx+13)};
+    idx = img.lastIndexOf(':');
+    if (idx > 0 && img.indexOf('/', idx) === -1) return {repo: img.slice(0, idx), tag: img.slice(idx+1)};
+    return {repo: img, tag: ''};
+  }
+  function render(running, disabled, fetchedAt){
+    var dis = new Set(disabled || []);
+    var all = new Map();
+    (running || []).forEach(function(c){ all.set(c.name || c.Name, c); });
+    dis.forEach(function(name){ if (!all.has(name)) all.set(name, {name:name, image:'', state:'stopped'}); });
+    if (fresh && fetchedAt) {
+      var age = Date.now() - fetchedAt;
+      fresh.textContent = 'as of ' + fmtAge(age);
+    }
+    if (!all.size) { body.innerHTML = '<span class="muted" style="font-size:12px">No containers.</span>'; return; }
+    var rows = [];
+    all.forEach(function(c, name){
+      var disabledNow = dis.has(name);
+      var img = c.image || c.Image || '';
+      var parts = splitImage(img);
+      var state = safe(c.state || c.State || (disabledNow ? 'stopped' : 'running'));
+      var dotCls = disabledNow ? 'dot-bad' : (state === 'running' ? 'dot-ok' : 'dot-warn');
+      rows.push('<tr data-container-row="' + safe(name) + '">' +
+        '<td><span class="dot ' + dotCls + '"></span> <span class="mono">' + safe(name) + '</span></td>' +
+        '<td><span class="pill pill-mono">' + safe(parts.tag || '—') + '</span></td>' +
+        '<td class="muted mono" style="font-size:11px">' + safe(parts.repo) + '</td>' +
+        '<td><span class="muted" style="font-size:12px">' + state + '</span></td>' +
+        '<td style="text-align:right">' +
+          '<label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">' +
+            '<input type="checkbox" class="raw container-toggle" data-container="' + safe(name) + '" ' + (disabledNow ? '' : 'checked') +
+            ' style="width:32px;height:18px;appearance:none;background:' + (disabledNow ? 'var(--color-bad)' : 'var(--color-ok)') +
+            ';border-radius:999px;cursor:pointer">' +
+          '</label>' +
+        '</td>' +
+        '</tr>');
+    });
+    body.innerHTML = '<div style="margin:-14px"><table class="table"><thead><tr><th>Container</th><th>Tag</th><th>Image</th><th>State</th><th></th></tr></thead><tbody>' + rows.join('') + '</tbody></table></div>';
+  }
+  function load(forceFresh){
+    if (fresh) fresh.textContent = '';
+    body.innerHTML = '<span class="muted" style="font-size:12px">Loading…</span>';
+    var qs = forceFresh ? '?fresh=1' : '';
+    Promise.all([
+      fetch('/ui/tenants/' + encodeURIComponent(slug) + '/containers' + qs,           {headers:{'Accept':'application/json'}}).then(function(r){ return r.json(); }),
+      fetch('/ui/tenants/' + encodeURIComponent(slug) + '/containers/disabled',        {headers:{'Accept':'application/json'}}).then(function(r){ return r.json(); })
+    ]).then(function(out){
+      var running    = (out[0] && (out[0].containers || out[0])) || [];
+      var fetchedAt  = (out[0] && out[0].fetched_at) || Date.now();
+      var disabled   = (out[1] && (out[1].disabled  || out[1])) || [];
+      render(running, disabled, fetchedAt);
+    }).catch(function(e){ body.innerHTML = '<span class="muted">Failed to load: ' + e + '</span>'; });
+  }
+  document.addEventListener('click', function(e){
+    if (e.target.closest('[data-containers-refresh]')) load(true);
+  });
+  document.addEventListener('change', function(e){
+    var box = e.target.closest('.container-toggle');
+    if (!box) return;
+    var name = box.getAttribute('data-container');
+    var on = box.checked;
+    box.disabled = true;
+    fetch('/ui/tenants/' + encodeURIComponent(slug) + '/containers/' + encodeURIComponent(name) + '/toggle', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body: JSON.stringify({state: on ? 'on' : 'off'})
+    }).then(function(r){ if (!r.ok) throw r.status; return load(true); })
+      .catch(function(err){ alert('Toggle failed: ' + err); box.checked = !on; })
+      .finally(function(){ box.disabled = false; });
+  });
+  load(false);
+})();
+</script>
+{{ end }}
+
+{{ define "panel-tasks-stub" }}
+<div class="panel"><div class="panel-body muted" style="font-size:12px">{{ . }}</div></div>
+{{ end }}
+
+{{/* ──────────── Action toolbar (inline + Maintenance dropdown) ──────────── */}}
+{{ define "action-toolbar" }}
+<div class="view-toolbar" data-toolbar>
+  {{ if .Inline }}
+    {{ range .Inline }}
+      <a href="{{ .Href }}" data-modal-open="{{ .ModalHref }}" class="btn{{ if .IsDestructive }} btn-danger{{ end }}" title="{{ .Description }}">{{ .Label }}</a>
+    {{ end }}
+  {{ end }}
+  {{ if .Maintenance }}
+    <div style="position:relative" data-dropdown>
+      <button class="btn" type="button" data-dropdown-trigger aria-haspopup="true" aria-expanded="false">
+        <span>Maintenance</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div data-dropdown-menu style="display:none;position:absolute;top:calc(100% + 4px);right:0;min-width:240px;background:var(--color-surface-2);border:1px solid var(--color-line);border-radius:var(--radius-2);box-shadow:var(--shadow-2);z-index:10;padding:4px">
+        {{ range .Maintenance }}
+          <a href="{{ .Href }}" data-modal-open="{{ .ModalHref }}" class="dropdown-item" style="display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:4px;text-decoration:none;color:inherit">
+            <span style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500">
+              {{ if .IsDestructive }}<span class="dot dot-bad"></span>{{ end }}
+              {{ .Label }}
+            </span>
+            {{ with .Description }}<span class="muted" style="font-size:11px">{{ . }}</span>{{ end }}
+          </a>
+        {{ end }}
+      </div>
+    </div>
+  {{ end }}
+  {{ if and (not .Inline) (not .Maintenance) }}
+    <span class="muted" style="font-size:12px">No actions apply here.</span>
+  {{ end }}
+</div>
+<script>
+(function(){
+  if (window.__toolbarBound) return; window.__toolbarBound = true;
+  document.addEventListener('click', function(e){
+    var trigger = e.target.closest('[data-dropdown-trigger]');
+    document.querySelectorAll('[data-dropdown-menu]').forEach(function(m){
+      var dd = m.closest('[data-dropdown]');
+      if (trigger && dd && dd.contains(trigger)) {
+        var open = m.style.display === 'block';
+        m.style.display = open ? 'none' : 'block';
+        var t = dd.querySelector('[data-dropdown-trigger]');
+        if (t) t.setAttribute('aria-expanded', open ? 'false' : 'true');
+      } else if (!e.target.closest('[data-dropdown-menu]')) {
+        m.style.display = 'none';
+        var t2 = m.closest('[data-dropdown]') && m.closest('[data-dropdown]').querySelector('[data-dropdown-trigger]');
+        if (t2) t2.setAttribute('aria-expanded', 'false');
+      }
+    });
+  });
+  document.addEventListener('mouseover', function(e){
+    var item = e.target.closest('.dropdown-item');
+    if (item) item.style.background = 'var(--color-surface-3)';
+  });
+  document.addEventListener('mouseout', function(e){
+    var item = e.target.closest('.dropdown-item');
+    if (item) item.style.background = '';
+  });
+})();
+</script>
+{{ end }}

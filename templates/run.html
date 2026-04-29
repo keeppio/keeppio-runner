@@ -1,54 +1,93 @@
 {{ define "run.html" }}{{ template "header" . }}
-<div class="mb-4">
-  <a href="/" class="text-sm text-zinc-500 hover:underline">← back</a>
+
+<div class="view-header">
+  <div class="view-title">
+    <a href="javascript:history.back()" class="muted" style="font-size:12px;text-decoration:none">←</a>
+    {{ if eq .Action.Severity "danger" }}<span class="dot dot-bad"></span>{{ end }}
+    <span>{{ .Action.Label }}</span>
+    {{ with .Action.Group }}<span class="pill">{{ . }}</span>{{ end }}
+    <span class="muted mono" style="font-size:11px">{{ .Action.ID }}</span>
+  </div>
 </div>
 
-<h1 class="text-xl font-semibold">{{ .Action.Label }}</h1>
-{{ if .Action.Description }}<p class="text-zinc-600 mt-1">{{ .Action.Description }}</p>{{ end }}
+{{ if .Action.Description }}<p class="muted" style="font-size:12px;margin:0 0 14px">{{ .Action.Description }}</p>{{ end }}
 
 {{ if .Error }}
-<div class="mt-4 border border-red-300 bg-red-50 text-red-800 rounded p-3 text-sm">{{ .Error }}</div>
+<div style="margin-bottom:14px;padding:10px 12px;border-radius:var(--radius-2);background:var(--color-bad-soft);color:var(--color-bad);font-size:13px;border:1px solid var(--color-bad)">{{ .Error }}</div>
 {{ end }}
 
 {{ if .DeployPubkey }}
-<div class="mt-4 border border-amber-300 bg-amber-50 rounded-lg p-4">
-  <h2 class="text-sm font-semibold text-amber-900 mb-1">Deploy this SSH public key on the new server first</h2>
-  <p class="text-xs text-amber-900/80 mb-2">Append the line below to <code class="bg-white/60 px-1 rounded">~/.ssh/authorized_keys</code> for the SSH user you'll register here. Without it the runner can't connect during onboarding.</p>
-  <pre class="text-xs bg-white border border-amber-200 rounded p-2 font-mono whitespace-pre-wrap break-all select-all">{{ .DeployPubkey }}</pre>
+<div style="margin-bottom:14px;padding:10px 12px;border-radius:var(--radius-2);background:var(--color-warn-soft);border:1px solid var(--color-warn);font-size:12px">
+  <strong style="display:block;margin-bottom:4px;color:var(--color-warn)">Install this deploy key on the target server first</strong>
+  <p style="margin:0 0 8px;color:var(--color-ink-2)">Append the line below to <code class="mono">~/.ssh/authorized_keys</code> for the SSH user you'll register here.</p>
+  <pre class="mono" style="margin:0;background:var(--color-surface-0);border:1px solid var(--color-line);padding:6px 8px;border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;user-select:all">{{ .DeployPubkey }}</pre>
 </div>
 {{ end }}
 
-<form method="post" action="/run/{{ .Action.ID }}.submit" class="mt-6 space-y-4 bg-white border rounded-lg p-5">
-  {{ range .Fields }}
-  <div>
-    <label class="block text-sm font-medium" for="{{ .Name }}">{{ .Label }}{{ if .Required }} <span class="text-red-500">*</span>{{ end }}</label>
-    {{ if .Description }}<div class="text-xs text-zinc-500 mb-1">{{ .Description }}</div>{{ end }}
-    {{ if eq .Type "enum" }}
-      {{ if .Error }}
-        <div class="text-sm text-red-600">{{ .Error }}</div>
-      {{ else if .Options }}
-        <select name="{{ .Name }}" id="{{ .Name }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
-          {{ if not .Required }}<option value="">— none —</option>{{ end }}
-          {{ $val := .Value }}
-          {{ range .Options }}<option value="{{ . }}" {{ if eq . $val }}selected{{ end }}>{{ . }}</option>{{ end }}
-        </select>
-      {{ else }}
-        <div class="text-sm text-zinc-500">no options available</div>
+<div class="panel" style="max-width:560px">
+  <div class="panel-body">
+    <form id="run-form" method="post" action="/run/{{ .Action.ID }}.submit"
+          {{ if eq .Action.Severity "danger" }}data-confirm-token="{{ .ConfirmToken }}"{{ end }}
+          style="display:flex;flex-direction:column;gap:14px">
+      {{ range .Fields }}
+      <div>
+        <label for="{{ .Name }}">{{ .Label }}{{ if .Required }} <span style="color:var(--color-bad)">*</span>{{ end }}</label>
+        {{ if .Description }}<div class="muted" style="font-size:11px;margin-bottom:6px">{{ .Description }}</div>{{ end }}
+        {{ if eq .Type "enum" }}
+          {{ if .Error }}<div style="color:var(--color-bad);font-size:12px">{{ .Error }}</div>
+          {{ else if .Options }}
+            <select name="{{ .Name }}" id="{{ .Name }}" {{ if .Required }}required{{ end }}>
+              {{ if not .Required }}<option value="">— none —</option>{{ end }}
+              {{ $v := .Value }}
+              {{ range .Options }}<option value="{{ . }}"{{ if eq . $v }} selected{{ end }}>{{ . }}</option>{{ end }}
+            </select>
+          {{ else }}<div class="muted">no options available</div>{{ end }}
+        {{ else if eq .Type "secret" }}
+          <input type="password" name="{{ .Name }}" id="{{ .Name }}" autocomplete="new-password" {{ if .Required }}required{{ end }}>
+        {{ else if eq .Type "bool" }}
+          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" class="raw" name="{{ .Name }}" id="{{ .Name }}" value="true"{{ if eq .Value "true" }} checked{{ end }} style="width:16px;height:16px;accent-color:var(--color-accent)">
+            <span class="muted" style="font-size:12px">enabled</span>
+          </label>
+        {{ else if eq .Type "int" }}
+          <input type="number" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Default }}" {{ if .Required }}required{{ end }}>
+        {{ else if eq .Type "datetime" }}
+          <input type="datetime-local" step="1" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" {{ if .Required }}required{{ end }}>
+        {{ else }}
+          <input type="text" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Default }}"
+                 {{ if .Pattern }}pattern="{{ .Pattern }}" title="must match {{ .Pattern }}"{{ end }}
+                 {{ if .Required }}required{{ end }}>
+        {{ end }}
+      </div>
       {{ end }}
-    {{ else if eq .Type "secret" }}
-      <input type="password" name="{{ .Name }}" id="{{ .Name }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
-    {{ else if eq .Type "datetime" }}
-      <input type="datetime-local" step="1" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
-    {{ else }}
-      <input type="text" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Default }}"
-             {{ if .Pattern }}pattern="{{ .Pattern }}" title="must match {{ .Pattern }}"{{ end }}
-             class="w-full border rounded px-2 py-1" {{ if .Required }}required{{ end }}>
-    {{ end }}
+      {{ if eq .Action.Severity "danger" }}
+      <div style="border-top:1px solid var(--color-line);padding-top:12px">
+        <label for="confirm-token" style="color:var(--color-bad)">
+          <span class="dot dot-bad"></span>
+          Type <code class="mono" style="background:var(--color-surface-0);border:1px solid var(--color-line);padding:1px 5px;border-radius:3px;font-size:12px">{{ .ConfirmToken }}</code> to confirm
+        </label>
+        <input type="text" id="confirm-token" autocomplete="off" placeholder="{{ .ConfirmToken }}" data-confirm-input>
+        <div class="muted" style="font-size:11px;margin-top:4px">This action is destructive — typing the {{ .ConfirmLabel }} value enables the Run button.</div>
+      </div>
+      {{ end }}
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="btn{{ if eq .Action.Severity "danger" }} btn-danger{{ else }} btn-primary{{ end }}" id="run-submit" type="submit" {{ if eq .Action.Severity "danger" }}disabled{{ end }}>Run</button>
+        <a href="javascript:history.back()" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
   </div>
-  {{ end }}
-  <div class="pt-2 flex items-center gap-2">
-    <button class="bg-zinc-900 text-white rounded px-4 py-2 text-sm font-medium hover:bg-zinc-800">Run</button>
-    <a href="/" class="text-sm text-zinc-500 hover:underline">Cancel</a>
-  </div>
-</form>
+</div>
+<script>
+(function(){
+  var form = document.getElementById('run-form');
+  if (!form) return;
+  var token = form.getAttribute('data-confirm-token');
+  if (!token) return;
+  var input = form.querySelector('[data-confirm-input]');
+  var submit = document.getElementById('run-submit');
+  if (!input || !submit) return;
+  function check(){ submit.disabled = (input.value !== token); }
+  input.addEventListener('input', check);
+})();
+</script>
 {{ template "footer" . }}{{ end }}

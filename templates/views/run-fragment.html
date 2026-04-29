@@ -1,0 +1,104 @@
+{{ define "run-fragment.html" }}
+<div class="modal-header">
+  <div style="display:flex;align-items:center;gap:8px">
+    {{ if eq .Action.Severity "danger" }}<span class="dot dot-bad"></span>{{ end }}
+    <strong style="font-size:14px">{{ .Action.Label }}</strong>
+    {{ with .Action.Group }}<span class="pill">{{ . }}</span>{{ end }}
+  </div>
+  <button class="btn btn-ghost btn-icon btn-sm" type="button" data-action="close-modal" aria-label="Close">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+  </button>
+</div>
+<div class="modal-body">
+  {{ if .Action.Description }}<p class="muted" style="font-size:12px;margin:0 0 14px">{{ .Action.Description }}</p>{{ end }}
+
+  {{ if .Error }}
+  <div style="margin-bottom:14px;padding:10px 12px;border:1px solid var(--color-bad);background:var(--color-bad-soft);color:var(--color-bad);border-radius:var(--radius-2);font-size:13px">{{ .Error }}</div>
+  {{ end }}
+
+  {{ if .DeployPubkey }}
+  <div style="margin-bottom:14px;padding:10px 12px;border:1px solid var(--color-warn);background:var(--color-warn-soft);border-radius:var(--radius-2);font-size:12px">
+    <strong style="display:block;margin-bottom:4px">Install this deploy key on the target first</strong>
+    <pre class="mono" style="margin:0;background:var(--color-surface-0);border:1px solid var(--color-line);padding:6px 8px;border-radius:4px;font-size:11px;white-space:pre-wrap;word-break:break-all;user-select:all">{{ .DeployPubkey }}</pre>
+  </div>
+  {{ end }}
+
+  <form id="run-form"
+        hx-post="/run/{{ .Action.ID }}.submit?modal=1"
+        hx-target="#modal-content"
+        hx-swap="innerHTML"
+        {{ if eq .Action.Severity "danger" }}data-confirm-token="{{ .ConfirmToken }}"{{ end }}
+        style="display:flex;flex-direction:column;gap:14px">
+    {{ range .Fields }}
+      <div>
+        <label for="{{ .Name }}" style="display:block;margin-bottom:4px">{{ .Label }}{{ if .Required }} <span style="color:var(--color-bad)">*</span>{{ end }}</label>
+        {{ if .Description }}<div class="muted" style="font-size:11px;margin-bottom:6px">{{ .Description }}</div>{{ end }}
+        {{ if eq .Type "enum" }}
+          {{ if .Error }}<div style="color:var(--color-bad);font-size:12px">{{ .Error }}</div>
+          {{ else if .Options }}
+            <select name="{{ .Name }}" id="{{ .Name }}" {{ if .Required }}required{{ end }}>
+              {{ if not .Required }}<option value="">— none —</option>{{ end }}
+              {{ $v := .Value }}
+              {{ range .Options }}<option value="{{ . }}"{{ if eq . $v }} selected{{ end }}>{{ . }}</option>{{ end }}
+            </select>
+          {{ else }}<div class="muted" style="font-size:12px">no options available</div>
+          {{ end }}
+        {{ else if eq .Type "secret" }}
+          <input type="password" name="{{ .Name }}" id="{{ .Name }}" autocomplete="new-password" {{ if .Required }}required{{ end }}>
+        {{ else if eq .Type "bool" }}
+          <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" class="raw" name="{{ .Name }}" id="{{ .Name }}" value="true"{{ if eq .Value "true" }} checked{{ end }}
+                   style="width:16px;height:16px;accent-color:var(--color-accent)">
+            <span class="muted" style="font-size:12px">enabled</span>
+          </label>
+        {{ else if eq .Type "int" }}
+          <input type="number" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Default }}" {{ if .Required }}required{{ end }}>
+        {{ else if eq .Type "datetime" }}
+          <input type="datetime-local" step="1" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" {{ if .Required }}required{{ end }}>
+        {{ else }}
+          <input type="text" name="{{ .Name }}" id="{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Default }}"
+                 {{ if .Pattern }}pattern="{{ .Pattern }}" title="must match {{ .Pattern }}"{{ end }}
+                 {{ if .Required }}required{{ end }}>
+        {{ end }}
+      </div>
+    {{ end }}
+
+    {{ if eq .Action.Severity "danger" }}
+    <div style="border-top:1px solid var(--color-line);padding-top:12px">
+      <label for="confirm-token" style="display:block;margin-bottom:4px;color:var(--color-bad)">
+        <span class="dot dot-bad"></span>
+        Type <code class="mono" style="background:var(--color-surface-0);border:1px solid var(--color-line);padding:1px 5px;border-radius:3px;font-size:12px">{{ .ConfirmToken }}</code> to confirm
+      </label>
+      <input type="text" id="confirm-token" autocomplete="off" placeholder="{{ .ConfirmToken }}" data-confirm-input>
+      <div class="muted" style="font-size:11px;margin-top:4px">This action is destructive — typing the {{ .ConfirmLabel }} value enables the Run button.</div>
+    </div>
+    {{ end }}
+  </form>
+</div>
+<div class="modal-footer">
+  <button class="btn" type="button" data-action="close-modal">Cancel</button>
+  <button class="btn{{ if eq .Action.Severity "danger" }} btn-danger{{ else }} btn-primary{{ end }}"
+          type="submit" form="run-form"
+          id="run-submit"
+          {{ if eq .Action.Severity "danger" }}disabled{{ end }}>
+    Run
+  </button>
+</div>
+<script>
+(function(){
+  // Wire typed-confirm gate. Called on every fragment swap (modal opens
+  // or validation error re-renders) — re-binds against the freshly-
+  // rendered DOM nodes.
+  var form = document.getElementById('run-form');
+  if (!form) return;
+  var token = form.getAttribute('data-confirm-token');
+  if (!token) return;
+  var input = form.querySelector('[data-confirm-input]');
+  var submit = document.getElementById('run-submit');
+  if (!input || !submit) return;
+  function check(){ submit.disabled = (input.value !== token); }
+  input.addEventListener('input', check);
+  input.focus();
+})();
+</script>
+{{ end }}
