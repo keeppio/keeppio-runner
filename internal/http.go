@@ -409,9 +409,14 @@ func (s *Server) handleRunSubmit(w http.ResponseWriter, r *http.Request, action 
 	}
 	if isModal {
 		// HTMX consumers: emit a custom event the bottom console listens
-		// for. JSON payload carries the new task id so the console can
-		// open its WebSocket without an extra round-trip. Empty body —
-		// the modal closes itself on receipt of the event.
+		// for; JSON payload carries the new task id so the console can
+		// open its WebSocket without an extra round-trip.
+		//
+		// HX-Reswap: none tells HTMX to skip the body swap entirely —
+		// without it the modal would briefly flash a "Task queued"
+		// placeholder before the close handler removes it. The trigger
+		// event still fires; the bottom console handler closes the
+		// modal and switches focus to the new task.
 		scope := scopeFromArgs(action, args)
 		payload, _ := json.Marshal(map[string]any{
 			"task_id":      taskID,
@@ -419,9 +424,9 @@ func (s *Server) handleRunSubmit(w http.ResponseWriter, r *http.Request, action 
 			"action_label": action.Label,
 			"scope":        scope,
 		})
-		w.Header().Set("HX-Trigger", `{"keeppio:task-started":` + string(payload) + `}`)
+		w.Header().Set("HX-Reswap", "none")
+		w.Header().Set("HX-Trigger", `{"keeppio:task-started":`+string(payload)+`}`)
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`<div class="muted" style="padding:14px;font-size:12px">Task #` + strconv.FormatInt(taskID, 10) + ` queued.</div>`))
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/tasks/%d", taskID), http.StatusSeeOther)

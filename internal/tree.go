@@ -107,61 +107,39 @@ func BuildResourceTree(env, repo, selectedID string) (*TreeNode, error) {
 		root.Children = append(root.Children, srvNode)
 	}
 
-	// --- Standalone tenants (whose registered server isn't in this env) ---
-	if len(standaloneTenants) > 0 {
-		section := &TreeNode{
-			Type:  "section",
-			Label: "Tenants",
-			Icon:  "tenant",
-		}
-		for _, t := range standaloneTenants {
-			section.Children = append(section.Children, buildTenantNode(repo, env, "", t))
-		}
-		section.Sublabel = fmt.Sprintf("%d", len(section.Children))
-		root.Children = append(root.Children, section)
-	}
+	// Ops, standalone tenants, and unknown hosts all sit at the same
+	// depth as server hosts (no wrapping section node). Type icons in
+	// the tree row already differentiate them visually — the extra
+	// folder layer just hid hosts behind an unnecessary click.
 
 	// --- Ops infrastructure ---
-	if len(opsHosts) > 0 {
-		section := &TreeNode{
-			Type:     "section",
-			Label:    "Operations",
+	for _, o := range opsHosts {
+		root.Children = append(root.Children, &TreeNode{
+			ID:       o.Name,
+			Type:     "host-ops",
+			Group:    "ops",
+			Label:    o.Name,
+			Sublabel: o.Host,
+			Href:     "/r/" + o.Name,
 			Icon:     "tool",
-			Sublabel: fmt.Sprintf("%d", len(opsHosts)),
-		}
-		for _, o := range opsHosts {
-			section.Children = append(section.Children, &TreeNode{
-				ID:       o.Name,
-				Type:     "host-ops",
-				Group:    "ops",
-				Label:    o.Name,
-				Sublabel: o.Host,
-				Href:     "/r/" + o.Name,
-				Icon:     "tool",
-			})
-		}
-		root.Children = append(root.Children, section)
+		})
+	}
+
+	// --- Standalone tenants (whose registered server isn't in this env) ---
+	for _, t := range standaloneTenants {
+		root.Children = append(root.Children, buildTenantNode(repo, env, "", t))
 	}
 
 	// --- Unknown / future groups ---
-	if len(unknownHosts) > 0 {
-		section := &TreeNode{
-			Type:     "section",
-			Label:    "Other",
+	for _, h := range unknownHosts {
+		root.Children = append(root.Children, &TreeNode{
+			ID:       h.Name,
+			Type:     "host-ops",
+			Label:    h.Name,
+			Sublabel: h.Host,
+			Href:     "/r/" + h.Name,
 			Icon:     "box",
-			Sublabel: fmt.Sprintf("%d", len(unknownHosts)),
-		}
-		for _, h := range unknownHosts {
-			section.Children = append(section.Children, &TreeNode{
-				ID:       h.Name,
-				Type:     "host-ops",
-				Label:    h.Name,
-				Sublabel: h.Host,
-				Href:     "/r/" + h.Name,
-				Icon:     "box",
-			})
-		}
-		root.Children = append(root.Children, section)
+		})
 	}
 
 	if selectedID != "" {

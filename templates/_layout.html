@@ -30,6 +30,18 @@
       <span class="topbar-divider"></span>
       <span style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;opacity:.92">{{ .Env }}</span>
       <span class="ml-auto" style="margin-left:auto"></span>
+      {{ $nav := printf "%v" .NavSection }}
+      <a href="/tasks" class="btn btn-ghost btn-sm" title="Tasks (g t)" aria-label="Tasks"
+         style="text-decoration:none{{ if eq $nav "tasks" }};background:rgba(255,255,255,.16){{ end }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span>Tasks</span>
+      </a>
+      <a href="/settings" class="btn btn-ghost btn-sm" title="Settings (g s)" aria-label="Settings"
+         style="text-decoration:none{{ if eq $nav "settings" }};background:rgba(255,255,255,.16){{ end }}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </a>
+      <span class="topbar-divider"></span>
       <button class="btn btn-ghost btn-sm" type="button" data-action="open-cmdk" title="Search resources (⌘K)" aria-label="Search">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
         <kbd style="background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.25);color:inherit">⌘K</kbd>
@@ -60,27 +72,6 @@
             </div>
           </div>
         {{ end }}
-      </div>
-      <div style="height:1px;background:var(--color-line);margin:6px 10px"></div>
-      <div class="tree" style="padding-top:0">
-        <a href="/tasks" class="tree-node" style="display:block;text-decoration:none">
-          <div class="tree-row"{{ if eq (printf "%v" .NavSection) "tasks" }} aria-current="true"{{ end }}>
-            <span class="tree-caret"></span>
-            <span class="tree-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-            </span>
-            <span class="tree-label">Tasks</span>
-          </div>
-        </a>
-        <a href="/settings" class="tree-node" style="display:block;text-decoration:none">
-          <div class="tree-row"{{ if eq (printf "%v" .NavSection) "settings" }} aria-current="true"{{ end }}>
-            <span class="tree-caret"></span>
-            <span class="tree-icon">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            </span>
-            <span class="tree-label">Settings</span>
-          </div>
-        </a>
       </div>
     </aside>
 
