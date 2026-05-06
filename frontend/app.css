@@ -391,15 +391,21 @@ html:where(:not(.dark)) {
   }
 
   /* Tree row "loading" indicator. JS sets data-loading on the row when
-     its anchor is clicked; the row's icon becomes a spinner until the
-     new page replaces this DOM. Visual cue for the brief delay between
-     click and full-page navigation completing. */
+     its anchor is clicked. Swap the type icon for a dedicated spinner
+     SVG (defined in _layout.html as a .tree-spinner that's hidden by
+     default). Spinning the existing icon was confusing because, e.g.,
+     a rotating "tenant" house icon looked like an animation glitch.
+     A purpose-built circular-arc spinner reads unambiguously as "wait." */
   @keyframes tree-spin { to { transform: rotate(360deg); } }
-  .tree-row[data-loading="true"] .tree-icon {
-    animation: tree-spin 0.9s linear infinite;
+  .tree-row .tree-spinner {
+    display: none;
+    width: 14px; height: 14px;
     color: var(--color-accent);
-    opacity: 0.85;
+    flex-shrink: 0;
+    animation: tree-spin 0.9s linear infinite;
   }
+  .tree-row[data-loading="true"] .tree-icon { display: none; }
+  .tree-row[data-loading="true"] .tree-spinner { display: inline-flex; }
   .tree-row[data-loading="true"] .tree-label,
   .tree-row[data-loading="true"] .tree-meta {
     opacity: 0.65;

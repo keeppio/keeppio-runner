@@ -66,7 +66,26 @@ func resolveHost(cfg *Config, name string) (hostConn, string, error) {
 			}
 		}
 	}
-	return hostConn{}, "", fmt.Errorf("host %q not found in servers or ops group", name)
+	// Fallback: synthetic server name (a consumed registered-server slug
+	// that was renamed into clients during onboard). The original VPS is
+	// still reachable -- it's whichever tenant references this name in
+	// its on_server. Use the first such tenant's connection vars; they
+	// share an IP/SSH user/port since "consumed" means same VPS.
+	for _, t := range tree["clients"] {
+		ref := t.OnServerOriginal
+		if ref == "" {
+			ref = t.OnServer
+		}
+		if ref == name {
+			return hostConn{
+				Name: name,
+				Host: t.Host,
+				User: t.User,
+				Port: t.Port,
+			}, "servers", nil
+		}
+	}
+	return hostConn{}, "", fmt.Errorf("host %q not found in servers, ops, or as a consumed-server reference", name)
 }
 
 // hostSSHExec is sshExec but for a hostConn. Kept as a thin alias so

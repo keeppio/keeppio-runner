@@ -23,6 +23,11 @@
         <span class="tree-caret"></span>
       {{ end }}
       <span class="tree-icon">{{ template "tree-icon" .Icon }}</span>
+      <span class="tree-spinner" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <path d="M12 3a9 9 0 1 0 9 9" opacity="0.85"/>
+        </svg>
+      </span>
       {{ if .Href }}
         <a href="{{ .Href }}" class="tree-label" style="color:inherit;text-decoration:none">{{ .Label }}</a>
       {{ else }}
