@@ -129,8 +129,20 @@
 <script>
 (function(){
   var slug = {{ .Resource.Name }};
+  var fqdn = {{ .Resource.PrimaryFqdn }};
   var pill = document.getElementById('status-pill');
   if (!pill) return;
+  // Public Kuma status page lives at status.<webapp_fqdn>/status/<slug>.
+  // Wrap the pill contents in a new-tab anchor so the operator can jump
+  // straight to Kuma -- the runner UI page should stay open as a tool,
+  // hence target=_blank.
+  var statusURL = fqdn ? ('https://status.' + fqdn + '/status/' + slug) : '';
+  function wrap(html) {
+    if (!statusURL) return html;
+    return '<a href="' + statusURL + '" target="_blank" rel="noopener" ' +
+           'style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px" ' +
+           'title="Open Kuma status page">' + html + '</a>';
+  }
   fetch('/ui/tenants/' + encodeURIComponent(slug) + '/status', {headers:{'Accept':'application/json'}})
     .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
     .then(function(s){
@@ -141,11 +153,13 @@
       else if (s.pending > 0) { dot = 'dot-warn'; label = s.pending + ' pending'; cls = 'pill pill-warn'; }
       else                    { dot = 'dot-ok';   label = 'all up · ' + s.up; cls = 'pill pill-ok'; }
       pill.className = cls;
-      pill.innerHTML = '<span class="dot ' + dot + '"></span> <span>' + label + '</span>';
+      pill.style.cursor = statusURL ? 'pointer' : '';
+      pill.innerHTML = wrap('<span class="dot ' + dot + '"></span> <span>' + label + '</span>');
     })
     .catch(function(){
       pill.className = 'pill pill-warn';
-      pill.innerHTML = '<span class="dot dot-warn"></span> <span>status check failed</span>';
+      pill.style.cursor = statusURL ? 'pointer' : '';
+      pill.innerHTML = wrap('<span class="dot dot-warn"></span> <span>status check failed</span>');
     });
 })();
 </script>
