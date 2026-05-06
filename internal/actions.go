@@ -117,6 +117,31 @@ func (c *Catalog) ByID(id string) (Action, bool) {
 	return Action{}, false
 }
 
+// ActionsImplicitlyTargeting returns the IDs of actions that apply to the
+// given inventory group without binding a per-host field -- e.g.
+// `runner-self-update` and `provision-ops` both list `applies_to: [{group:
+// ops}]` with no field. Tasks for such actions don't reference a specific
+// host name in their args, so the resource-page Tasks tab can't surface
+// them via an args-json LIKE on the host slug; this list lets the query
+// fall back to action_id matching for the relevant host group.
+func (c *Catalog) ActionsImplicitlyTargeting(group string) []string {
+	if group == "" {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []string
+	for _, a := range c.actions {
+		for _, ap := range a.AppliesTo {
+			if ap.Group == group && ap.Field == "" {
+				out = append(out, a.ID)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // Grouped returns actions partitioned by Group, with stable label
 // ordering inside each group. Used by the dashboard.
 func (c *Catalog) Grouped() []GroupedActions {

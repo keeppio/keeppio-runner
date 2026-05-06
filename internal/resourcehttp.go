@@ -79,7 +79,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 				"ServiceVersions":    ReadServiceVersions(s.cfg.RepoPath, s.cfg.Env, host.Name),
 				"Toolbar":            s.cat.BuildToolbar(hostGroup, host.Name),
 				"Tab":                normalizeTab(tab, []string{"overview", "domains", "containers", "tasks"}),
-				"ScopedTasks":        s.recentTasksForSlug(r.Context(), host.Name),
+				"ScopedTasks":        s.recentTasksForResource(r.Context(), host.Name, hostGroup),
 			})
 		case "servers":
 			tenants := tenantsOnHost(inv, host.Name)
@@ -92,7 +92,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 				"TenantsOnHost": tenants,
 				"Toolbar":       s.cat.BuildToolbar(hostGroup, host.Name),
 				"Tab":           normalizeTab(tab, []string{"overview", "tenants", "orphans", "tasks"}),
-				"ScopedTasks":   s.recentTasksForSlug(r.Context(), host.Name),
+				"ScopedTasks":   s.recentTasksForResource(r.Context(), host.Name, hostGroup),
 			})
 		default:
 			s.render(w, "resource.html", map[string]any{
@@ -103,7 +103,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 				"Resource":    hostWithGroup(host, hostGroup),
 				"Toolbar":     s.cat.BuildToolbar(hostGroup, host.Name),
 				"Tab":         normalizeTab(tab, []string{"overview", "tasks"}),
-				"ScopedTasks": s.recentTasksForSlug(r.Context(), host.Name),
+				"ScopedTasks": s.recentTasksForResource(r.Context(), host.Name, hostGroup),
 			})
 		}
 		return
@@ -142,7 +142,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		"ServiceVersions":    ReadServiceVersions(s.cfg.RepoPath, s.cfg.Env, tenant.Name),
 		"Toolbar":            s.cat.BuildToolbar(tGroup, tenant.Name),
 		"Tab":                normalizeTab(tab, []string{"overview", "domains", "containers", "tasks"}),
-		"ScopedTasks":        s.recentTasksForSlug(r.Context(), tenant.Name),
+		"ScopedTasks":        s.recentTasksForResource(r.Context(), tenant.Name, tGroup),
 	})
 }
 
@@ -160,28 +160,49 @@ type scopedTask struct {
 	EndedAt   time.Time
 }
 
-// recentTasksForSlug returns the 25 most recent tasks whose args reference
-// the given slug. Match is on args_json containing "<slug>" as a JSON
-// string value, which catches every named arg the runner passes (tenant,
-// target_host, server_name, ops_name, target_server, etc.) without
-// false-positive matches against substrings of unrelated values.
+// recentTasksForSlug returns the 25 most recent tasks relevant to the
+// given resource. Two ways a task can match:
+//
+//  1. args_json contains "<slug>" as a JSON string value -- catches every
+//     named arg the runner passes (tenant, target_host, server_name,
+//     ops_name, target_server, ...). Wrapped in quotes to anchor matches
+//     so "demo" doesn't catch "demo2" or "predemoted".
+//
+//  2. The resource's group is ops/servers and the task ran an action
+//     declared to apply to that group with no field binding (e.g.
+//     `runner-self-update`, `provision-ops`). Those actions don't put
+//     the host name in args -- they implicitly act on every host in the
+//     group, and an env always has one ops host, so listing them on the
+//     ops page is what an operator expects.
 //
 // Errors are intentionally swallowed: an empty Tasks tab is far better
 // than crashing the entire resource page when the DB is briefly busy.
 func (s *Server) recentTasksForSlug(ctx context.Context, slug string) []scopedTask {
+	return s.recentTasksForResource(ctx, slug, "")
+}
+
+func (s *Server) recentTasksForResource(ctx context.Context, slug, group string) []scopedTask {
 	if slug == "" {
 		return nil
 	}
-	// JSON values are double-quoted in args_json, so wrapping the slug in
-	// quotes anchors the LIKE to whole-value matches. Without the quotes,
-	// "demo" would also match "demo2" or "predemoted".
-	needle := "%\"" + slug + "\"%"
+	where := []string{"args_json LIKE ?"}
+	args := []any{"%\"" + slug + "\"%"}
+	if group != "" {
+		if implicit := s.cat.ActionsImplicitlyTargeting(group); len(implicit) > 0 {
+			placeholders := strings.Repeat("?,", len(implicit))
+			placeholders = strings.TrimSuffix(placeholders, ",")
+			where = append(where, "action_id IN ("+placeholders+")")
+			for _, id := range implicit {
+				args = append(args, id)
+			}
+		}
+	}
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, action_id, action_label, status, username, created_at, ended_at
 		 FROM tasks
-		 WHERE args_json LIKE ?
+		 WHERE `+strings.Join(where, " OR ")+`
 		 ORDER BY id DESC
-		 LIMIT 25`, needle)
+		 LIMIT 25`, args...)
 	if err != nil {
 		return nil
 	}
