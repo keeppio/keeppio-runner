@@ -86,6 +86,10 @@ func BuildResourceTree(env, repo, selectedID string) (*TreeNode, error) {
 	sort.Slice(unknownHosts, func(i, j int) bool { return unknownHosts[i].Name < unknownHosts[j].Name })
 
 	// --- Servers (with their tenants nested) ---
+	serverNameSet := make(map[string]bool, len(serverHosts))
+	for _, srv := range serverHosts {
+		serverNameSet[srv.Name] = true
+	}
 	for _, srv := range serverHosts {
 		srvNode := &TreeNode{
 			ID:       srv.Name,
@@ -106,6 +110,20 @@ func BuildResourceTree(env, repo, selectedID string) (*TreeNode, error) {
 		}
 		root.Children = append(root.Children, srvNode)
 	}
+
+	// Tenants whose registered server is no longer in the `servers`
+	// group fall through to standalone. This is the common case: the
+	// onboard playbook moves the host entry from `servers` -> `clients`,
+	// so every tenant ends up here. Without this fallback the tenant
+	// is silently dropped (it's keyed under a server name that no
+	// serverNode iterates).
+	for srvName, tenants := range tenantsByServer {
+		if serverNameSet[srvName] {
+			continue
+		}
+		standaloneTenants = append(standaloneTenants, tenants...)
+	}
+	sort.Slice(standaloneTenants, func(i, j int) bool { return standaloneTenants[i].Name < standaloneTenants[j].Name })
 
 	// Ops, standalone tenants, and unknown hosts all sit at the same
 	// depth as server hosts (no wrapping section node). Type icons in
