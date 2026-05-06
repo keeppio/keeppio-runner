@@ -59,6 +59,28 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	hostName := parts[0]
 	host, hostGroup, found := lookupHost(inv, hostName)
 	if !found {
+		// Synthetic server case: the name isn't in any inventory group,
+		// but it may be referenced by tenants' on_server fields (i.e. a
+		// server that was consumed by an onboard and renamed into the
+		// clients group). Render a server-style view so operators can
+		// see which tenants live on it, even though no inventory entry
+		// exists. The synthetic host's IP is inferred from the first
+		// tenant's ansible_host.
+		if synthetic, syntheticTenants := lookupSyntheticServer(inv, hostName); synthetic != nil {
+			s.render(w, "resource.html", map[string]any{
+				"User":          currentUser(r),
+				"Selected":      hostName,
+				"NavSection":    "resource",
+				"ViewType":      "host-server",
+				"Resource":      hostWithGroup(*synthetic, "servers"),
+				"TenantsOnHost": syntheticTenants,
+				"Synthetic":     true,
+				"Toolbar":       s.cat.BuildToolbar("servers", hostName),
+				"Tab":           normalizeTab(tab, []string{"overview", "tenants", "tasks"}),
+				"ScopedTasks":   s.recentTasksForResource(r.Context(), hostName, "servers"),
+			})
+			return
+		}
 		http.NotFound(w, r)
 		return
 	}
@@ -259,6 +281,39 @@ func lookupHost(inv map[string]HostGroup, name string) (HostEntry, string, bool)
 		}
 	}
 	return HostEntry{}, "", false
+}
+
+// lookupSyntheticServer recovers a "consumed" server: a name no longer in
+// inventory.servers (the onboard playbook moved it into clients) but
+// still referenced by one or more tenants via host_vars/<slug>/vars.yml's
+// `on_server:`. Returns a synthesised HostEntry (Name + Host filled from
+// the first tenant's ansible_host) plus the tenants that live on it, or
+// (nil, nil) if no tenant points at this name.
+func lookupSyntheticServer(inv map[string]HostGroup, name string) (*HostEntry, []HostEntry) {
+	if name == "" {
+		return nil, nil
+	}
+	var tenants []HostEntry
+	for _, t := range inv["clients"] {
+		ref := t.OnServerOriginal
+		if ref == "" {
+			ref = t.OnServer
+		}
+		if ref == name {
+			tenants = append(tenants, t)
+		}
+	}
+	if len(tenants) == 0 {
+		return nil, nil
+	}
+	sort.Slice(tenants, func(i, j int) bool { return tenants[i].Name < tenants[j].Name })
+	synth := HostEntry{
+		Name: name,
+		Host: tenants[0].Host,
+		Port: tenants[0].Port,
+		User: tenants[0].User,
+	}
+	return &synth, tenants
 }
 
 // lookupParentServer returns the server-group host that a tenant claims

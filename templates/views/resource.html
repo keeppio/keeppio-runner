@@ -178,18 +178,71 @@
   {{ if .TenantsOnHost }}
   <div class="panel-body" style="padding:0">
     <table class="table">
-      <thead><tr><th>Name</th><th>Primary FQDN</th><th style="text-align:right">Domains</th></tr></thead>
+      <thead><tr><th>Name</th><th>Primary FQDN</th><th style="text-align:right">Domains</th><th>Status</th></tr></thead>
       <tbody>
         {{ range .TenantsOnHost }}
+        {{/*
+          Tenant URL: when this server is synthetic (not in inventory),
+          the consumed-server prefix would 404 -- fall through to the
+          standalone /r/<tenant> form. The handler resolves either way.
+        */}}
         <tr>
-          <td><a href="/r/{{ $.Resource.Name }}/{{ .Name }}" class="mono">{{ .Name }}</a></td>
+          <td>
+            {{ if $.Synthetic }}
+              <a href="/r/{{ .Name }}" class="mono">{{ .Name }}</a>
+            {{ else }}
+              <a href="/r/{{ $.Resource.Name }}/{{ .Name }}" class="mono">{{ .Name }}</a>
+            {{ end }}
+          </td>
           <td class="muted">{{ .PrimaryFqdn }}</td>
           <td style="text-align:right" class="tabular muted">{{ len .AllFqdns }}</td>
+          <td><span class="pill" data-tenant-status="{{ .Name }}" data-status-fqdn="{{ .PrimaryFqdn }}"><span class="dot dot-idle"></span> <span>checking…</span></span></td>
         </tr>
         {{ end }}
       </tbody>
     </table>
   </div>
+  <script>
+  (function(){
+    /*
+      Status fetch + Kuma link for each tenant row. The pill is replaced
+      with a clickable anchor that opens https://status.<webapp_fqdn>/
+      in a new tab. We wait until network idle to avoid hammering the
+      ops box on every server-page render -- per-tenant SSH+docker exec
+      is non-trivial, but cached by the runner's status endpoint.
+    */
+    var pills = document.querySelectorAll('[data-tenant-status]');
+    pills.forEach(function(pill) {
+      var slug = pill.getAttribute('data-tenant-status');
+      var fqdn = pill.getAttribute('data-status-fqdn');
+      var statusURL = fqdn ? 'https://status.' + fqdn + '/status/' + slug : '';
+      function setHTML(html, cls) {
+        pill.className = 'pill ' + (cls || '');
+        if (statusURL) {
+          // Wrap inner content in an anchor so the whole pill opens
+          // the public Kuma status page in a new tab. New-tab is
+          // intentional -- the runner UI page is a tool the operator
+          // wants to keep open, not a destination.
+          pill.innerHTML = '<a href="' + statusURL + '" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:4px" title="Open Kuma status page">' + html + '</a>';
+        } else {
+          pill.innerHTML = html;
+        }
+      }
+      fetch('/ui/tenants/' + encodeURIComponent(slug) + '/status', {headers:{'Accept':'application/json'}})
+        .then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function(s){
+          if (s.error)               setHTML('<span class="dot dot-warn"></span> <span>unreachable</span>', 'pill-warn');
+          else if (s.total === 0)    setHTML('<span class="dot dot-idle"></span> <span>no monitors</span>', '');
+          else if (s.down > 0)       setHTML('<span class="dot dot-bad"></span> <span>' + s.down + ' down</span>', 'pill-bad');
+          else if (s.pending > 0)    setHTML('<span class="dot dot-warn"></span> <span>' + s.pending + ' pending</span>', 'pill-warn');
+          else                       setHTML('<span class="dot dot-ok"></span> <span>' + s.up + ' online</span>', 'pill-ok');
+        })
+        .catch(function(){
+          setHTML('<span class="dot dot-warn"></span> <span>check failed</span>', 'pill-warn');
+        });
+    });
+  })();
+  </script>
   {{ else }}
   <div class="panel-body muted" style="font-size:12px">No tenants on this host.</div>
   {{ end }}

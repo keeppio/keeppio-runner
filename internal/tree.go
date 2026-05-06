@@ -149,9 +149,11 @@ func BuildResourceTree(env, repo, selectedID string) (*TreeNode, error) {
 			Label:    srvName,
 			Sublabel: sub,
 			Icon:     "server",
-			// no Href -- the server entry no longer exists in inventory,
-			// so /r/<srvName> would 404. The tenant rows below remain
-			// independently clickable.
+			// Synthetic-server URL: resourcehttp falls back to a server
+			// view that lists the tenants pointing at this on_server
+			// value (with their statuses + Kuma status-page links) when
+			// the name isn't in inventory.servers.
+			Href:     "/r/" + srvName,
 			Expanded: true,
 		}
 		for _, t := range tenants {
