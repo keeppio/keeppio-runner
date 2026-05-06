@@ -41,7 +41,33 @@
               {{ $v := .Value }}
               {{ range .Options }}<option value="{{ . }}"{{ if eq . $v }} selected{{ end }}>{{ . }}</option>{{ end }}
             </select>
-          {{ else }}<div class="muted" style="font-size:12px">no options available</div>
+          {{ else }}
+            {{/*
+              Empty enum -- give the operator a contextual hint instead
+              of the dead "no options available" line. The hint message
+              is keyed off the source's group: an empty `servers` group
+              means every registered VPS got consumed by an onboard;
+              an empty `clients` group means no tenants yet; and so on.
+            */}}
+            {{ if and .Source (eq .Source.Kind "inventory") }}
+              <div style="font-size:12px;padding:8px 10px;border:1px dashed var(--color-line);border-radius:var(--radius-2);background:var(--color-surface-0)">
+                {{ if eq .Source.Group "servers" }}
+                  <span class="muted">No registered (free) servers.</span>
+                  Every VPS in inventory has already been claimed by a tenant onboard.
+                  <a href="/run/server-register" data-modal-open="/run/server-register?modal=1" style="color:var(--color-accent)">Register a server</a>
+                  to free up this dropdown.
+                {{ else if eq .Source.Group "clients" }}
+                  <span class="muted">No tenants yet.</span>
+                  Run <a href="/run/tenant-onboard" data-modal-open="/run/tenant-onboard?modal=1" style="color:var(--color-accent)">New tenant</a> first.
+                {{ else if eq .Source.Group "ops" }}
+                  <span class="muted">No ops boxes yet.</span>
+                  Run <a href="/run/ops-register" data-modal-open="/run/ops-register?modal=1" style="color:var(--color-accent)">Register ops box</a> first.
+                {{ else }}
+                  <span class="muted">No options available in inventory group `{{ .Source.Group }}`.</span>
+                {{ end }}
+              </div>
+            {{ else }}<div class="muted" style="font-size:12px">no options available</div>
+            {{ end }}
           {{ end }}
         {{ else if eq .Type "secret" }}
           <input type="password" name="{{ .Name }}" id="{{ .Name }}" autocomplete="new-password" {{ if .Required }}required{{ end }}>
