@@ -169,8 +169,16 @@ func exec(name string, args ...string) (string, error) {
 // pullRepo fetches + hard-resets the cloned repo to origin/<branch>.
 // Same shape the task runner does per-task, lifted out so the boot
 // path and the periodic refresher share a code path.
+//
+// The fetch uses an explicit `+refs/heads/<branch>:refs/remotes/origin/<branch>`
+// refspec so a branch switch (e.g. RUNNER_REPO_BRANCH changes from
+// `main` to `multi-tenant-per-vps`) updates the remote-tracking ref
+// correctly. Without the refspec, `git fetch origin <branch>` lands
+// in FETCH_HEAD only and the subsequent `reset --hard origin/<branch>`
+// errors with "unknown revision".
 func pullRepo(cfg *internal.Config) error {
-	if out, err := exec("git", "-C", cfg.RepoPath, "fetch", "--quiet", "origin", cfg.RepoBranch); err != nil {
+	refspec := "+refs/heads/" + cfg.RepoBranch + ":refs/remotes/origin/" + cfg.RepoBranch
+	if out, err := exec("git", "-C", cfg.RepoPath, "fetch", "--quiet", "origin", refspec); err != nil {
 		return fmt.Errorf("git fetch: %w: %s", err, out)
 	}
 	if out, err := exec("git", "-C", cfg.RepoPath, "reset", "--hard", "origin/"+cfg.RepoBranch); err != nil {

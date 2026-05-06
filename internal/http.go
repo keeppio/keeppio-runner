@@ -827,8 +827,15 @@ func (s *Server) handleSettingsPullRepo(w http.ResponseWriter, r *http.Request) 
 
 // pullRepoForRunner mirrors main.pullRepo. Duplicated here to avoid a
 // circular import; both call out to git via os/exec.
+//
+// Same explicit-refspec fetch as main.pullRepo so a branch switch
+// updates the remote-tracking ref instead of just landing in
+// FETCH_HEAD (which makes `reset --hard origin/<branch>` choke with
+// "unknown revision" when the local clone doesn't already track that
+// branch).
 func pullRepoForRunner(cfg *Config) error {
-	out, err := captureExec(cfg.RepoPath, "git", "fetch", "--quiet", "origin", cfg.RepoBranch)
+	refspec := "+refs/heads/" + cfg.RepoBranch + ":refs/remotes/origin/" + cfg.RepoBranch
+	out, err := captureExec(cfg.RepoPath, "git", "fetch", "--quiet", "origin", refspec)
 	if err != nil {
 		return fmt.Errorf("git fetch: %w: %s", err, out)
 	}
