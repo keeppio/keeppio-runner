@@ -155,7 +155,10 @@ func BuildResourceTree(env, repo, selectedID string) (*TreeNode, error) {
 			Expanded: true,
 		}
 		for _, t := range tenants {
-			srvNode.Children = append(srvNode.Children, buildTenantNode(repo, env, srvName, t))
+			// Pass empty serverSlug so the tenant URL stays /r/<slug>;
+			// /r/<consumed-server>/<tenant> would 404 because the server
+			// host has no inventory entry.
+			srvNode.Children = append(srvNode.Children, buildTenantNode(repo, env, "", t))
 		}
 		root.Children = append(root.Children, srvNode)
 	}
