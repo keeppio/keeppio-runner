@@ -267,18 +267,52 @@ func buildTenantNode(repo, env, serverSlug string, t HostEntry) *TreeNode {
 		node.Children = append(node.Children, domains)
 	}
 
-	// "Containers" is rendered as a placeholder leaf that links to the
-	// tenant view's Containers tab. Live container state is fetched on
-	// demand by the view, not eagerly here (see phase 9 / state cache).
-	node.Children = append(node.Children, &TreeNode{
-		ID:    tenantPath + "#containers",
-		Type:  "section",
-		Label: "Containers",
-		Icon:  "box",
-		Href:  "/r/" + tenantPath + "?tab=containers",
-	})
+	// Containers section. Mirrors the Domains shape: a parent row with
+	// a static list of expected container names underneath. The list is
+	// derived from the apps role's app_services + tenant infra (postgres,
+	// nginx); we list it statically here so the tree doesn't need an
+	// SSH+docker-exec round-trip on every page render. Live state shows
+	// up on the tenant view's Containers tab. Each row links to the same
+	// tab so an operator can click any container name to drill in.
+	containers := &TreeNode{
+		ID:       tenantPath + "#containers",
+		Type:     "section",
+		Label:    "Containers",
+		Icon:     "box",
+		Href:     "/r/" + tenantPath + "?tab=containers",
+		Sublabel: fmt.Sprintf("%d", len(canonicalTenantContainers)),
+	}
+	for _, c := range canonicalTenantContainers {
+		containers.Children = append(containers.Children, &TreeNode{
+			ID:    tenantPath + "#cnt:" + c,
+			Type:  "container",
+			Label: c,
+			Icon:  "dot",
+			Href:  "/r/" + tenantPath + "?tab=containers",
+		})
+	}
+	node.Children = append(node.Children, containers)
 
 	return node
+}
+
+// canonicalTenantContainers is the canonical set of containers an
+// onboarded tenant runs. Mirrors roles/apps/defaults/main.yml's
+// app_services list plus the tenant-infra entries (postgres, nginx).
+// Listed statically rather than fetched live so the tree builds in
+// constant time -- live state is shown on the Containers tab.
+var canonicalTenantContainers = []string{
+	"api",
+	"api-queue",
+	"api-scheduler",
+	"bridge",
+	"nginx",
+	"paynl",
+	"paynl-queue",
+	"paynl-scheduler",
+	"postgres",
+	"reverb",
+	"webapp",
 }
 
 // markSelected walks the tree, sets Selected on the matched node, and

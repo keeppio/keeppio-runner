@@ -354,6 +354,42 @@ html:where(:not(.dark)) {
   }
   body[data-resizing="sidebar"] iframe { pointer-events: none; }
 
+  /* Custom tooltip. Positioned by JS on mouseover; styled to match the
+     dark surface family. Shows a label line + optional meta line. */
+  #tooltip {
+    position: fixed;
+    z-index: 200;
+    max-width: 360px;
+    padding: 6px 10px;
+    background: var(--color-surface-3);
+    color: var(--color-ink-1);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-2);
+    box-shadow: var(--shadow-2);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity .08s, transform .08s;
+    word-break: break-word;
+    display: none;
+  }
+  #tooltip[data-show="true"] {
+    display: block;
+    opacity: 1;
+    transform: translateY(0);
+  }
+  #tooltip .tooltip-label {
+    font-weight: 500;
+  }
+  #tooltip .tooltip-meta {
+    color: var(--color-ink-3);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
   /* Tree row "loading" indicator. JS sets data-loading on the row when
      its anchor is clicked; the row's icon becomes a spinner until the
      new page replaces this DOM. Visual cue for the brief delay between

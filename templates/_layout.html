@@ -132,6 +132,14 @@
     <div id="modal-root" class="modal-backdrop" style="display:none" data-action="close-modal">
       <div class="modal" id="modal-content"></div>
     </div>
+
+    {{/*
+      Custom tooltip floats above everything, positioned by JS on
+      hover of any [data-tip] element. CSS-styled (dark theme, small
+      monospace, tight padding) so it visually fits the runner UI;
+      the native browser title is slow to appear and can't be styled.
+    */}}
+    <div id="tooltip" role="tooltip" aria-hidden="true"></div>
   </div>
 
   <script>
@@ -255,6 +263,76 @@
         var isOpen = node.getAttribute('data-expanded') === 'true';
         node.setAttribute('data-expanded', isOpen ? 'false' : 'true');
       });
+
+      // ---- Custom tooltip ----
+      // mouseover/mouseout on body, delegated to any [data-tip].
+      // Position: just above the cursor, clamped to the viewport.
+      // The 80ms show delay matches modern UI norms (faster than the
+      // browser title's ~500ms) without firing on incidental passes.
+      (function() {
+        var tip = d.getElementById('tooltip');
+        if (!tip) return;
+        var showTimer = null, currentTarget = null;
+        function place(x, y) {
+          tip.style.left = '0px';
+          tip.style.top = '0px';
+          var rect = tip.getBoundingClientRect();
+          var w = rect.width, ht = rect.height;
+          var pad = 8;
+          var left = Math.min(Math.max(pad, x + 12), window.innerWidth - w - pad);
+          var top = y - ht - 12;
+          if (top < pad) top = y + 18;
+          tip.style.left = left + 'px';
+          tip.style.top  = top  + 'px';
+        }
+        function hide() {
+          clearTimeout(showTimer); showTimer = null;
+          currentTarget = null;
+          tip.removeAttribute('data-show');
+          tip.setAttribute('aria-hidden', 'true');
+        }
+        d.addEventListener('mouseover', function(e) {
+          var t = e.target.closest('[data-tip]');
+          if (!t || t === currentTarget) return;
+          currentTarget = t;
+          var label = t.getAttribute('data-tip') || '';
+          var meta  = t.getAttribute('data-tip-meta') || '';
+          if (!label) return hide();
+          // Build the tooltip body. Two lines if meta is present.
+          var html = '<div class="tooltip-label">' + escapeHTML(label) + '</div>';
+          if (meta) html += '<div class="tooltip-meta">' + escapeHTML(meta) + '</div>';
+          tip.innerHTML = html;
+          var x = e.clientX, y = e.clientY;
+          clearTimeout(showTimer);
+          showTimer = setTimeout(function() {
+            tip.setAttribute('data-show', 'true');
+            tip.setAttribute('aria-hidden', 'false');
+            place(x, y);
+          }, 80);
+        });
+        d.addEventListener('mouseout', function(e) {
+          var t = e.target.closest('[data-tip]');
+          if (!t) return;
+          // mouseout fires on every child element transition; only
+          // hide when we've actually left the tip-bearing element.
+          if (e.relatedTarget && t.contains(e.relatedTarget)) return;
+          hide();
+        });
+        d.addEventListener('mousemove', function(e) {
+          if (!currentTarget) return;
+          if (tip.getAttribute('data-show') === 'true') place(e.clientX, e.clientY);
+        });
+        // Hide on scroll, click, and keydown so the tooltip never
+        // sticks around when the user moves on.
+        window.addEventListener('scroll', hide, true);
+        d.addEventListener('click', hide);
+        d.addEventListener('keydown', hide);
+        function escapeHTML(s) {
+          return String(s).replace(/[&<>"']/g, function(c) {
+            return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c];
+          });
+        }
+      })();
 
       // Loading spinner on tree-row navigation. Tree links trigger a
       // full-page nav (no SPA), so server latency between click and the

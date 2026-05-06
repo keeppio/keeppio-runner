@@ -7,15 +7,14 @@
 {{ define "tree-node" }}
   <div class="tree-node"{{ if .Expanded }} data-expanded="true"{{ end }} data-id="{{ .ID }}" data-type="{{ .Type }}">
     {{/*
-      Native `title` attribute on the row gives a free hover tooltip
-      with the full label + sublabel -- needed because the sidebar
-      truncates long names (e.g. sandbox-server-1) with text-overflow:
-      ellipsis. Build the title once at the row level so the tooltip
-      shows regardless of which sub-element is hovered.
+      Tooltip via data-tip / data-tip-meta -- a JS+CSS implementation
+      in _layout.html replaces the native browser tooltip (slow to
+      appear, no styling, can't carry rich content). Useful because
+      the sidebar truncates long names with text-overflow:ellipsis.
     */}}
     <div class="tree-row"
          {{ if .Selected }} aria-current="true"{{ end }}
-         title="{{ .Label }}{{ with .Sublabel }} -- {{ . }}{{ end }}">
+         data-tip="{{ .Label }}"{{ with .Sublabel }} data-tip-meta="{{ . }}"{{ end }}>
       {{ if .Children }}
         <span class="tree-caret" role="button" aria-label="Expand">
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>
