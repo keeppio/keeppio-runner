@@ -251,7 +251,7 @@
     paletteOpen = false;
     var modalRoot = d.getElementById('modal-root');
     if (modalRoot) modalRoot.style.display = 'none';
-    d.body.dataset.modal = '';
+    d.body.removeAttribute('data-modal');
     var modalContent = d.getElementById('modal-content');
     if (modalContent) modalContent.innerHTML = '';
   }
@@ -317,4 +317,10 @@
       if (paletteOpen) closePalette(); else openPalette();
     }
   });
+
+  // The layout's closeModal() runs for Esc / submit / backdrop-click /
+  // explicit close buttons. When that happens while the palette is up,
+  // keep our local paletteOpen flag in sync -- otherwise the next ⌘K
+  // press would think the palette is still open and close-without-open.
+  d.addEventListener('keeppio:modal-closed', function() { paletteOpen = false; });
 })();

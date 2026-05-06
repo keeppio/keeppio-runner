@@ -123,7 +123,7 @@
     <div class="drawer-backdrop" data-action="close-drawer" aria-hidden="true"></div>
 
     <div id="modal-root" class="modal-backdrop" style="display:none" data-action="close-modal">
-      <div class="modal" id="modal-content" data-stop></div>
+      <div class="modal" id="modal-content"></div>
     </div>
   </div>
 
@@ -182,9 +182,12 @@
       });
 
       // Esc closes overlays in priority order: modal > drawer > mobile console.
+      // Modal close goes through closeModal() (defined further down) so the
+      // backdrop element gets display:none; merely clearing data-modal would
+      // leave the gray backdrop visible.
       d.addEventListener('keydown', function(e) {
         if (e.key !== 'Escape') return;
-        if (b.dataset.modal === 'open') { b.dataset.modal = ''; e.preventDefault(); return; }
+        if (b.dataset.modal === 'open') { closeModal(); e.preventDefault(); return; }
         if (b.dataset.drawer === 'open') { b.dataset.drawer = ''; e.preventDefault(); return; }
         if (b.dataset.console === 'open') { b.dataset.console = ''; e.preventDefault(); return; }
       });
@@ -217,14 +220,30 @@
       function closeModal() {
         if (!modalRoot) return;
         modalRoot.style.display = 'none';
-        b.dataset.modal = '';
+        // removeAttribute is defensive: setting dataset.modal = '' leaves
+        // the attribute present (just with an empty value), which can
+        // satisfy any [data-modal] CSS rule introduced later.
+        b.removeAttribute('data-modal');
         modalContent.innerHTML = '';
+        // Notify external state holders (command palette, help overlay)
+        // so their flags don't desync when the modal was closed via Esc
+        // / submit / backdrop click rather than their own close path.
+        d.dispatchEvent(new CustomEvent('keeppio:modal-closed'));
       }
       d.addEventListener('click', function(e) {
-        if (e.target.closest('[data-action="close-modal"]') && !e.target.closest('[data-stop]')) {
-          closeModal();
-          return;
-        }
+        // Two close paths:
+        //   1. an explicit close button (X / Cancel) anywhere -- they have
+        //      data-action="close-modal" themselves;
+        //   2. a click that lands directly on the backdrop element
+        //      (modal-root) -- the wrapping div around the panel.
+        // The previous check used `!e.target.closest('[data-stop]')` to keep
+        // panel-internal clicks from closing, but data-stop sat on the panel
+        // itself, which meant explicit close buttons inside the panel were
+        // also blocked. Comparing e.target === modalRoot is precise enough:
+        // a click on the panel body never reports modalRoot as the target.
+        var closeBtn = e.target.closest('[data-action="close-modal"]');
+        if (closeBtn && closeBtn !== modalRoot) { closeModal(); return; }
+        if (e.target === modalRoot) { closeModal(); return; }
         // Action toolbar buttons / dropdown items with hx-get open the
         // modal (HTMX handles the fetch + swap; we just toggle visibility).
         var trigger = e.target.closest('[data-modal-open]');
