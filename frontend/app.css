@@ -321,7 +321,7 @@ html:where(:not(.dark)) {
     overflow: hidden;
   }
   .app-shell > .topbar  { grid-area: topbar; }
-  .app-shell > .sidebar { grid-area: sidebar; overflow: hidden auto; }
+  .app-shell > .sidebar { grid-area: sidebar; overflow: hidden auto; position: relative; }
   .app-shell > .main    { grid-area: main; overflow: hidden auto; }
   .app-shell > .console { grid-area: console; }
 
@@ -329,6 +329,44 @@ html:where(:not(.dark)) {
     background: var(--color-surface-1);
     border-right: 1px solid var(--color-line);
     font-size: 13px;
+  }
+  /* Drag-resize handle: 4px-wide invisible bar on the right edge of
+     the sidebar. Cursor + accent tint reveal it on hover so the
+     affordance is discoverable without taking column space. The
+     desktop-only @media block at the bottom of this file hides it on
+     mobile (the sidebar is a slide-in drawer there with fixed width). */
+  .sidebar-resize {
+    position: absolute;
+    top: 0; right: -2px; bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 5;
+    background: transparent;
+    transition: background .12s;
+  }
+  .sidebar-resize:hover,
+  body[data-resizing="sidebar"] .sidebar-resize {
+    background: var(--color-accent-soft);
+  }
+  body[data-resizing="sidebar"] {
+    cursor: col-resize;
+    user-select: none;
+  }
+  body[data-resizing="sidebar"] iframe { pointer-events: none; }
+
+  /* Tree row "loading" indicator. JS sets data-loading on the row when
+     its anchor is clicked; the row's icon becomes a spinner until the
+     new page replaces this DOM. Visual cue for the brief delay between
+     click and full-page navigation completing. */
+  @keyframes tree-spin { to { transform: rotate(360deg); } }
+  .tree-row[data-loading="true"] .tree-icon {
+    animation: tree-spin 0.9s linear infinite;
+    color: var(--color-accent);
+    opacity: 0.85;
+  }
+  .tree-row[data-loading="true"] .tree-label,
+  .tree-row[data-loading="true"] .tree-meta {
+    opacity: 0.65;
   }
   .main {
     background: var(--color-surface-0);

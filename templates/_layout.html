@@ -73,6 +73,13 @@
           </div>
         {{ end }}
       </div>
+      {{/*
+        Drag-resize handle on the right edge of the sidebar. JS sets
+        --sidebar-w on the <html> element, persisted in localStorage,
+        and the grid template column on .app-shell follows. Hidden on
+        mobile where the sidebar is a slide-in drawer at fixed width.
+      */}}
+      <div class="sidebar-resize" data-action="sidebar-resize-start" role="separator" aria-orientation="vertical" aria-label="Resize sidebar"></div>
     </aside>
 
     <main class="main">
@@ -137,7 +144,52 @@
           var c0 = d.getElementById('console');
           if (c0) c0.setAttribute('data-collapsed', 'true');
         }
+        var savedW = parseInt(localStorage.getItem('sidebar-w'), 10);
+        if (savedW >= 200 && savedW <= 720) {
+          h.style.setProperty('--sidebar-w', savedW + 'px');
+        }
       } catch (e) {}
+
+      // ---- Sidebar drag-resize ----
+      // The handle is a 6px-wide bar on the right edge of the sidebar
+      // (.sidebar-resize). mousedown on it starts a drag; mousemove
+      // updates --sidebar-w on <html> (the grid template column on
+      // .app-shell follows); mouseup commits the new width to
+      // localStorage. Range [200, 720] keeps the sidebar usable on
+      // both narrow and ultrawide displays. Disabled on mobile via
+      // CSS (the sidebar there is a fixed-width drawer).
+      (function() {
+        var resizing = false;
+        var minW = 200, maxW = 720;
+        function clamp(v) { return Math.max(minW, Math.min(maxW, v)); }
+        d.addEventListener('mousedown', function(e) {
+          var t = e.target.closest('[data-action="sidebar-resize-start"]');
+          if (!t) return;
+          e.preventDefault();
+          resizing = true;
+          b.setAttribute('data-resizing', 'sidebar');
+        });
+        d.addEventListener('mousemove', function(e) {
+          if (!resizing) return;
+          // The sidebar's left edge is the viewport left edge (column 1
+          // in the app-shell grid), so cursor X is the new width.
+          var w = clamp(e.clientX);
+          h.style.setProperty('--sidebar-w', w + 'px');
+        });
+        d.addEventListener('mouseup', function() {
+          if (!resizing) return;
+          resizing = false;
+          b.removeAttribute('data-resizing');
+          // Read the value back from the inline style and persist; this
+          // way clamp() is honoured even if the user drove the cursor
+          // far past the bounds.
+          var v = h.style.getPropertyValue('--sidebar-w');
+          var px = parseInt(v, 10);
+          if (px >= minW && px <= maxW) {
+            try { localStorage.setItem('sidebar-w', String(px)); } catch (_) {}
+          }
+        });
+      })();
 
       function syncThemeIcons() {
         var dark = h.classList.contains('dark');
@@ -204,6 +256,29 @@
         node.setAttribute('data-expanded', isOpen ? 'false' : 'true');
       });
 
+      // Loading spinner on tree-row navigation. Tree links trigger a
+      // full-page nav (no SPA), so server latency between click and the
+      // new page rendering shows up as a dead UI. Mark the clicked row
+      // as data-loading=true; CSS spins the icon until navigation
+      // completes (this script is replaced by the new page's). Skip on
+      // modifier-clicks (cmd/ctrl/middle/shift) so "open in new tab"
+      // doesn't strand the original page in a loading state.
+      d.addEventListener('click', function(e) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        var a = e.target.closest('.tree-row a.tree-label');
+        if (!a) return;
+        var row = a.closest('.tree-row');
+        if (row) row.setAttribute('data-loading', 'true');
+      });
+      // pageshow fires when the page is restored from bfcache (browser
+      // back/forward). Clear stale loading state in that case so a row
+      // doesn't stay spinning forever.
+      window.addEventListener('pageshow', function() {
+        d.querySelectorAll('.tree-row[data-loading="true"]').forEach(function(r) {
+          r.removeAttribute('data-loading');
+        });
+      });
+
       // ---- Modal ----
       var modalRoot = d.getElementById('modal-root');
       var modalContent = d.getElementById('modal-content');
@@ -257,11 +332,18 @@
           }
         }
       });
-      // Whenever HTMX swaps content into the modal, show it.
+      // Whenever HTMX swaps content into the modal, show it. Guard
+      // against the empty-swap case: on a successful submit the server
+      // sends `HX-Reswap: none` + `HX-Trigger: keeppio:task-started`.
+      // The trigger fires first and runs closeModal() (clears
+      // innerHTML, hides backdrop), but htmx:afterSwap still fires
+      // afterwards even when no swap happened -- without this check
+      // the listener would call openModal() and the operator would see
+      // an empty grey backdrop they have to click to dismiss.
       d.body.addEventListener('htmx:afterSwap', function(e) {
-        if (e.detail && e.detail.target && e.detail.target.id === 'modal-content') {
-          openModal();
-        }
+        if (!(e.detail && e.detail.target && e.detail.target.id === 'modal-content')) return;
+        if (modalContent.innerHTML.trim() === '') return;
+        openModal();
       });
       // Submitting from the modal triggers `keeppio:task-started` on
       // success (server emits HX-Trigger). Listen here, close the modal,
