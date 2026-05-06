@@ -1,9 +1,12 @@
 package internal
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 )
 
 // resourceStats summarises the inventory for the env-root view (counts
@@ -76,6 +79,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 				"ServiceVersions":    ReadServiceVersions(s.cfg.RepoPath, s.cfg.Env, host.Name),
 				"Toolbar":            s.cat.BuildToolbar(hostGroup, host.Name),
 				"Tab":                normalizeTab(tab, []string{"overview", "domains", "containers", "tasks"}),
+				"ScopedTasks":        s.recentTasksForSlug(r.Context(), host.Name),
 			})
 		case "servers":
 			tenants := tenantsOnHost(inv, host.Name)
@@ -88,16 +92,18 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 				"TenantsOnHost": tenants,
 				"Toolbar":       s.cat.BuildToolbar(hostGroup, host.Name),
 				"Tab":           normalizeTab(tab, []string{"overview", "tenants", "orphans", "tasks"}),
+				"ScopedTasks":   s.recentTasksForSlug(r.Context(), host.Name),
 			})
 		default:
 			s.render(w, "resource.html", map[string]any{
-				"User":       currentUser(r),
-				"Selected":   host.Name,
-				"NavSection": "resource",
-				"ViewType":   "host-ops",
-				"Resource":   hostWithGroup(host, hostGroup),
-				"Toolbar":    s.cat.BuildToolbar(hostGroup, host.Name),
-				"Tab":        normalizeTab(tab, []string{"overview", "tasks"}),
+				"User":        currentUser(r),
+				"Selected":    host.Name,
+				"NavSection":  "resource",
+				"ViewType":    "host-ops",
+				"Resource":    hostWithGroup(host, hostGroup),
+				"Toolbar":     s.cat.BuildToolbar(hostGroup, host.Name),
+				"Tab":         normalizeTab(tab, []string{"overview", "tasks"}),
+				"ScopedTasks": s.recentTasksForSlug(r.Context(), host.Name),
 			})
 		}
 		return
@@ -136,7 +142,63 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		"ServiceVersions":    ReadServiceVersions(s.cfg.RepoPath, s.cfg.Env, tenant.Name),
 		"Toolbar":            s.cat.BuildToolbar(tGroup, tenant.Name),
 		"Tab":                normalizeTab(tab, []string{"overview", "domains", "containers", "tasks"}),
+		"ScopedTasks":        s.recentTasksForSlug(r.Context(), tenant.Name),
 	})
+}
+
+// scopedTask is the lightweight row shape consumed by the resource page's
+// Tasks tab. We deliberately don't reuse taskRow because the *time.Time
+// pointers there are awkward to template against, and the resource page
+// only needs a handful of fields.
+type scopedTask struct {
+	ID        int64
+	ActionID  string
+	Label     string
+	Status    string
+	Username  string
+	CreatedAt time.Time
+	EndedAt   time.Time
+}
+
+// recentTasksForSlug returns the 25 most recent tasks whose args reference
+// the given slug. Match is on args_json containing "<slug>" as a JSON
+// string value, which catches every named arg the runner passes (tenant,
+// target_host, server_name, ops_name, target_server, etc.) without
+// false-positive matches against substrings of unrelated values.
+//
+// Errors are intentionally swallowed: an empty Tasks tab is far better
+// than crashing the entire resource page when the DB is briefly busy.
+func (s *Server) recentTasksForSlug(ctx context.Context, slug string) []scopedTask {
+	if slug == "" {
+		return nil
+	}
+	// JSON values are double-quoted in args_json, so wrapping the slug in
+	// quotes anchors the LIKE to whole-value matches. Without the quotes,
+	// "demo" would also match "demo2" or "predemoted".
+	needle := "%\"" + slug + "\"%"
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, action_id, action_label, status, username, created_at, ended_at
+		 FROM tasks
+		 WHERE args_json LIKE ?
+		 ORDER BY id DESC
+		 LIMIT 25`, needle)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []scopedTask
+	for rows.Next() {
+		var t scopedTask
+		var ended sql.NullTime
+		if err := rows.Scan(&t.ID, &t.ActionID, &t.Label, &t.Status, &t.Username, &t.CreatedAt, &ended); err != nil {
+			return nil
+		}
+		if ended.Valid {
+			t.EndedAt = ended.Time
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 // normalizeTab returns the requested tab if it's allowed, otherwise the

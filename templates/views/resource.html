@@ -64,7 +64,7 @@
   {{ else if eq .Tab "orphans" }}
     {{ template "panel-orphan-containers" .Resource }}
   {{ else if eq .Tab "tasks" }}
-    {{ template "panel-tasks-stub" "Recent tasks scoped to this host appear in the bottom console; full history lands in phase 7." }}
+    {{ template "panel-scoped-tasks" . }}
   {{ end }}
 
 {{ else if eq .ViewType "host-ops" }}
@@ -82,7 +82,7 @@
     </div>
     {{ end }}
   {{ else if eq .Tab "tasks" }}
-    {{ template "panel-tasks-stub" "Recent tasks scoped to this host appear in the bottom console." }}
+    {{ template "panel-scoped-tasks" . }}
   {{ end }}
 
 {{ else if eq .ViewType "tenant" }}
@@ -119,7 +119,7 @@
   {{ else if eq .Tab "containers" }}
     {{ template "panel-containers" . }}
   {{ else if eq .Tab "tasks" }}
-    {{ template "panel-tasks-stub" "Recent tasks for this tenant appear in the bottom console." }}
+    {{ template "panel-scoped-tasks" . }}
   {{ end }}
 
 {{ end }}
@@ -449,6 +449,49 @@
 
 {{ define "panel-tasks-stub" }}
 <div class="panel"><div class="panel-body muted" style="font-size:12px">{{ . }}</div></div>
+{{ end }}
+
+{{/*
+  Scoped tasks panel: lists tasks whose args reference the current
+  resource's slug. Backed by recentTasksForSlug() in resourcehttp.go,
+  which matches against args_json containing the slug as a JSON value
+  (so e.g. ops01's task tab catches every provision-ops, runner-self-
+  update, and chained tenant-* run that named ops01 in any arg).
+*/}}
+{{ define "panel-scoped-tasks" }}
+<div class="panel">
+  <div class="panel-header">
+    <span>Recent tasks</span>
+    {{ if .ScopedTasks }}<span class="pill">{{ len .ScopedTasks }}</span>{{ end }}
+  </div>
+  {{ if .ScopedTasks }}
+  <div class="panel-body" style="padding:0">
+    <table class="table">
+      <thead><tr><th>#</th><th>Action</th><th>Status</th><th>Started by</th><th>When</th></tr></thead>
+      <tbody>
+        {{ range .ScopedTasks }}
+        <tr>
+          <td><a href="/tasks/{{ .ID }}" class="mono">#{{ .ID }}</a></td>
+          <td>{{ .Label }} <span class="muted" style="font-size:11px">{{ .ActionID }}</span></td>
+          <td>
+            {{ if eq .Status "success" }}<span class="pill pill-ok">success</span>
+            {{ else if eq .Status "error" }}<span class="pill pill-bad">error</span>
+            {{ else if eq .Status "running" }}<span class="pill pill-info">running</span>
+            {{ else if eq .Status "queued" }}<span class="pill">queued</span>
+            {{ else if eq .Status "cancelled" }}<span class="pill pill-warn">cancelled</span>
+            {{ else }}<span class="pill">{{ .Status }}</span>{{ end }}
+          </td>
+          <td class="mono" style="font-size:12px">{{ .Username }}</td>
+          <td class="muted" style="font-size:12px">{{ .CreatedAt.Format "2006-01-02 15:04" }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  {{ else }}
+  <div class="panel-body muted" style="font-size:12px">No tasks have referenced this resource yet.</div>
+  {{ end }}
+</div>
 {{ end }}
 
 {{/* ──────────── Action toolbar (inline + Maintenance dropdown) ──────────── */}}

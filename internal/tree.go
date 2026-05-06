@@ -111,17 +111,53 @@ func BuildResourceTree(env, repo, selectedID string) (*TreeNode, error) {
 		root.Children = append(root.Children, srvNode)
 	}
 
-	// Tenants whose registered server is no longer in the `servers`
-	// group fall through to standalone. This is the common case: the
-	// onboard playbook moves the host entry from `servers` -> `clients`,
-	// so every tenant ends up here. Without this fallback the tenant
-	// is silently dropped (it's keyed under a server name that no
-	// serverNode iterates).
-	for srvName, tenants := range tenantsByServer {
-		if serverNameSet[srvName] {
-			continue
+	// Synthetic server nodes for "consumed" servers: a tenant onboard
+	// moves the server entry from `servers` -> `clients` (renamed to
+	// the tenant slug), so the original server name is no longer in
+	// inventory. Operators still think of the tenant as living on
+	// "<original-server-name>", so render a synthetic parent for each
+	// such server name with the tenants nested under it. The parent
+	// is not clickable (no Href) -- it's purely a grouping affordance.
+	// IP is inferred from the first tenant's ansible_host, which is
+	// the IP of the consumed VPS.
+	consumedServerNames := []string{}
+	for srvName := range tenantsByServer {
+		if !serverNameSet[srvName] {
+			consumedServerNames = append(consumedServerNames, srvName)
 		}
-		standaloneTenants = append(standaloneTenants, tenants...)
+	}
+	sort.Strings(consumedServerNames)
+	for _, srvName := range consumedServerNames {
+		tenants := tenantsByServer[srvName]
+		sort.Slice(tenants, func(i, j int) bool { return tenants[i].Name < tenants[j].Name })
+		ip := ""
+		if len(tenants) > 0 {
+			ip = tenants[0].Host
+		}
+		sub := ip
+		if n := len(tenants); n > 0 {
+			if ip != "" {
+				sub = fmt.Sprintf("%s · %d tenant%s", ip, n, plural(n))
+			} else {
+				sub = fmt.Sprintf("%d tenant%s", n, plural(n))
+			}
+		}
+		srvNode := &TreeNode{
+			ID:       srvName,
+			Type:     "host-server",
+			Group:    "servers",
+			Label:    srvName,
+			Sublabel: sub,
+			Icon:     "server",
+			// no Href -- the server entry no longer exists in inventory,
+			// so /r/<srvName> would 404. The tenant rows below remain
+			// independently clickable.
+			Expanded: true,
+		}
+		for _, t := range tenants {
+			srvNode.Children = append(srvNode.Children, buildTenantNode(repo, env, srvName, t))
+		}
+		root.Children = append(root.Children, srvNode)
 	}
 	sort.Slice(standaloneTenants, func(i, j int) bool { return standaloneTenants[i].Name < standaloneTenants[j].Name })
 
@@ -200,6 +236,10 @@ func buildTenantNode(repo, env, serverSlug string, t HostEntry) *TreeNode {
 			Label:    "Domains",
 			Icon:     "globe",
 			Sublabel: fmt.Sprintf("%d", len(t.AllFqdns)),
+			// Click takes you to the tenant page's domains tab, where
+			// the full FQDN list + on/off toggles render. Without a
+			// Href the tree row was a dead label.
+			Href: "/r/" + tenantPath + "?tab=domains",
 		}
 		for _, d := range t.AllFqdns {
 			status := "ok"
@@ -213,6 +253,10 @@ func buildTenantNode(repo, env, serverSlug string, t HostEntry) *TreeNode {
 				Sublabel: d.Label,
 				Icon:     "dot",
 				Status:   status,
+				// Same destination as the parent -- per-domain detail
+				// pages don't exist; landing on the domains tab is
+				// what an operator wants either way.
+				Href: "/r/" + tenantPath + "?tab=domains",
 			})
 		}
 		node.Children = append(node.Children, domains)
